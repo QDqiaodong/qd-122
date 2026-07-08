@@ -1,0 +1,87 @@
+services:
+  mysql:
+    image: mysql:8.0.36
+    container_name: spring-transfer-mysql-dev
+    ports:
+      - "3324:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: spring_transfer_2024
+      MYSQL_DATABASE: spring_transfer
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    command:
+      - --innodb_file_per_table=1
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    networks:
+      - spring-transfer-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.2.4
+    container_name: spring-transfer-redis-dev
+    ports:
+      - "6397:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --requirepass ""
+    networks:
+      - spring-transfer-net
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: spring-transfer-backend-dev
+    ports:
+      - "8106:8106"
+      - "5005:5005"
+    environment:
+      SPRING_PROFILES_ACTIVE: dev
+      JAVA_OPTS: -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005 -Xdebug -Xmx512m -Xms256m
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/pom.xml:/app/pom.xml
+      - ./backend/target:/app/target
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - spring-transfer-net
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: spring-transfer-frontend-dev
+    ports:
+      - "8096:8096"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/package.json:/app/package.json
+      - ./frontend/vite.config.ts:/app/vite.config.ts
+    environment:
+      - VITE_API_BASE_URL=http://backend:8106
+    depends_on:
+      - backend
+    networks:
+      - spring-transfer-net
+    restart: unless-stopped
+
+networks:
+  spring-transfer-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local
+  transfer-data:
+    driver: local
+  redis-data:
+    driver: local

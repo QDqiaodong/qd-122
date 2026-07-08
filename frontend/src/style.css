@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  background-color: #f3f4f6;
+  color: #1f2937;
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+@layer components {
+  .btn-industrial {
+    @apply px-4 py-2 rounded-industrial font-medium transition-all duration-200;
+    @apply bg-primary-800 text-white hover:bg-primary-700 active:bg-primary-900;
+    @apply shadow-industrial hover:shadow-industrial-hover active:shadow-industrial-active;
+  }
+
+  .btn-industrial-accent {
+    @apply px-4 py-2 rounded-industrial font-medium transition-all duration-200;
+    @apply bg-accent-500 text-white hover:bg-accent-400 active:bg-accent-600;
+    @apply shadow-industrial hover:shadow-industrial-hover active:shadow-industrial-active;
+  }
+
+  .btn-industrial-outline {
+    @apply px-4 py-2 rounded-industrial font-medium transition-all duration-200;
+    @apply border-2 border-primary-800 text-primary-800 bg-transparent;
+    @apply hover:bg-primary-50 active:bg-primary-100;
+  }
+
+  .card-industrial {
+    @apply bg-white rounded-industrial shadow-industrial border border-industrial-200;
+  }
+
+  .table-industrial {
+    @apply w-full border-collapse;
+  }
+
+  .table-industrial th {
+    @apply bg-industrial-100 text-industrial-800 font-semibold text-left px-4 py-3;
+    @apply border-b-2 border-primary-800;
+  }
+
+  .table-industrial td {
+    @apply px-4 py-3 border-b border-industrial-200;
+  }
+
+  .table-industrial tr:hover td {
+    @apply bg-primary-50;
+  }
+
+  .input-industrial {
+    @apply w-full px-3 py-2 border border-industrial-300 rounded-industrial;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply transition-all duration-200;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-slide-in-left {
+    animation: slideInLeft 0.4s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.4s ease-out;
+  }
+
+  .animate-stagger {
+    animation: staggerIn 0.5s ease-out backwards;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes staggerIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

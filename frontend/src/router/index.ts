@@ -1,0 +1,37 @@
+import { createRouter, createWebHistory } from 'vue-router'
+import SpringArchive from '@/pages/SpringArchive.vue'
+import TransferOperation from '@/pages/TransferOperation.vue'
+import TraceQuery from '@/pages/TraceQuery.vue'
+
+const routes = [
+  {
+    path: '/',
+    name: 'SpringArchive',
+    component: SpringArchive,
+    meta: { title: '弹簧档案管理' },
+  },
+  {
+    path: '/transfer',
+    name: 'TransferOperation',
+    component: TransferOperation,
+    meta: { title: '产线划转操作' },
+  },
+  {
+    path: '/trace',
+    name: 'TraceQuery',
+    component: TraceQuery,
+    meta: { title: '划转轨迹查询' },
+  },
+]
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes,
+})
+
+router.beforeEach((to, _from, next) => {
+  document.title = `${to.meta.title || '弹簧产线划转管理系统'}`
+  next()
+})
+
+export default router
