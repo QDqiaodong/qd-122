@@ -19,6 +19,8 @@ import com.spring.transfer.repository.TransferApplicationLogRepository;
 import com.spring.transfer.repository.TransferApplicationRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -33,8 +35,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class TransferApplicationService {
@@ -138,19 +142,22 @@ public class TransferApplicationService {
     }
 
     /**
-     * 批量审批通过：每条明细独立事务处理，单条失败不影响其他明细
+     * 批量审批通过：每条明细独立事务处理，单条失败（业务校验失败或抛异常）不影响其他明细，
+     * 始终为每个入参返回一条逐条结果
      */
     public List<ItemProcessResult> approve(ApprovalRequest request) {
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
         List<ItemProcessResult> results = new ArrayList<>();
         for (Long itemId : request.getItemIds().stream().distinct().toList()) {
-            results.add(txTemplate.execute(status -> doApprove(itemId, request.getApprover().trim())));
+            results.add(processOneItem(txTemplate, itemId,
+                    () -> doApprove(itemId, request.getApprover().trim())));
         }
         return results;
     }
 
     /**
-     * 批量驳回：每条明细独立事务处理，驳回必须填写原因
+     * 批量驳回：每条明细独立事务处理，驳回必须填写原因。
+     * 单条失败不影响其他明细，始终为每个入参返回一条逐条结果
      */
     public List<ItemProcessResult> reject(ApprovalRequest request) {
         if (request.getReason() == null || request.getReason().trim().isEmpty()) {
@@ -159,24 +166,67 @@ public class TransferApplicationService {
         TransactionTemplate txTemplate = new TransactionTemplate(transactionManager);
         List<ItemProcessResult> results = new ArrayList<>();
         for (Long itemId : request.getItemIds().stream().distinct().toList()) {
-            results.add(txTemplate.execute(status -> doReject(itemId, request.getApprover().trim(), request.getReason().trim())));
+            results.add(processOneItem(txTemplate, itemId,
+                    () -> doReject(itemId, request.getApprover().trim(), request.getReason().trim())));
         }
         return results;
     }
 
-    /** 单条明细审批通过，由 approve() 在独立事务中调用 */
+    /**
+     * 在独立事务中处理单条明细：
+     * 业务校验不通过时返回失败结果（无数据写入）；抛出任何异常都会使该明细事务整体回滚
+     * （归属、流水、日志均不落地），仅记录为该条失败结果，不中断批量循环
+     */
+    private ItemProcessResult processOneItem(TransactionTemplate txTemplate, Long itemId,
+                                             Supplier<ItemProcessResult> action) {
+        try {
+            return txTemplate.execute(status -> action.get());
+        } catch (DataAccessException e) {
+            // 锁等待超时、死锁、约束冲突等：事务已回滚，该明细未生效
+            log.error("审批明细 #" + itemId + " 发生数据访问异常，事务已回滚", e);
+            return ItemProcessResult.fail(itemId, resolveSpringCode(itemId),
+                    "处理失败（数据异常，该明细未生效），请刷新页面后重试");
+        } catch (RuntimeException e) {
+            log.warn("审批明细 #{} 处理失败，事务已回滚：{}", itemId, e.getMessage());
+            return ItemProcessResult.fail(itemId, resolveSpringCode(itemId), e.getMessage());
+        }
+    }
+
+    /** 事务回滚结束后查询弹簧编号，用于补全逐条失败结果 */
+    private String resolveSpringCode(Long itemId) {
+        try {
+            return itemRepository.findSpringCodeById(itemId).orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 单条明细审批通过，由 approve() 在独立事务中调用。
+     * 锁顺序固定为：申请单行 -> 明细行 -> 弹簧档案行，与其他路径保持一致，避免死锁。
+     */
     private ItemProcessResult doApprove(Long itemId, String approver) {
-        TransferApplicationItem item = itemRepository.findById(itemId).orElse(null);
-        if (item == null) {
+        // 投影预读（不加载受管实体），仅用于不存在/重复操作的快速失败；加锁后必须重新读取最新状态
+        TransferApplicationItemRepository.ItemPreview preview = itemRepository.findPreviewById(itemId).orElse(null);
+        if (preview == null) {
             return ItemProcessResult.fail(itemId, null, "申请明细不存在");
         }
+        if (preview.getStatus() != ItemStatus.PENDING) {
+            return ItemProcessResult.fail(itemId, preview.getSpringCode(),
+                    "该申请已由 " + preview.getApprover() + " 处理（" + statusText(preview.getStatus()) + "），请勿重复操作");
+        }
+
+        // 锁定申请单行：串行化同一申请单的并发审批，不同申请单互不阻塞
+        TransferApplication application = applicationRepository.findByIdForUpdate(preview.getApplicationId())
+                .orElseThrow(() -> new RuntimeException("划转申请不存在"));
+
+        // 持有申请单锁后加锁读取明细，此时一级缓存中无该实体，得到的是并发场景下的最新状态
+        TransferApplicationItem item = itemRepository.findByIdForUpdate(itemId)
+                .orElseThrow(() -> new RuntimeException("申请明细不存在"));
         if (item.getStatus() != ItemStatus.PENDING) {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "该申请已由 " + item.getApprover() + " 处理（" + statusText(item.getStatus()) + "），请勿重复操作");
         }
-
-        TransferApplication application = applicationRepository.findById(item.getApplicationId())
-                .orElseThrow(() -> new RuntimeException("划转申请不存在"));
 
         // 悲观锁锁定弹簧，串行化并发审批对同一弹簧的归属变更
         SpringArchive spring = springArchiveRepository.findByIdForUpdate(item.getSpringId()).orElse(null);
@@ -188,7 +238,7 @@ public class TransferApplicationService {
                     "弹簧当前已归属目标产线「" + item.getToLineName() + "」，无需划转，请驳回该申请");
         }
 
-        // 原子状态流转，防止并发审批重复生效
+        // 原子状态流转（双保险），防止并发审批重复生效
         int updated = itemRepository.approveIfPending(itemId, approver, LocalDateTime.now(),
                 ItemStatus.APPROVED, ItemStatus.PENDING);
         if (updated == 0) {
@@ -198,7 +248,7 @@ public class TransferApplicationService {
         ProductionLine fromLine = productionLineRepository.findById(spring.getCurrentLineId())
                 .orElseThrow(() -> new RuntimeException("弹簧 " + spring.getSpringCode() + " 的当前产线不存在"));
 
-        // 审批通过后才更新弹簧归属并生成划转流水
+        // 审批通过后才更新弹簧归属并生成划转流水；状态流转成功后才执行到这里，因此每条通过明细只会执行一次
         spring.setCurrentLineId(item.getToLineId());
         springArchiveRepository.save(spring);
 
@@ -225,12 +275,26 @@ public class TransferApplicationService {
                 "审批通过，弹簧已划转至「" + item.getToLineName() + "」");
     }
 
-    /** 单条明细驳回，由 reject() 在独立事务中调用 */
+    /**
+     * 单条明细驳回，由 reject() 在独立事务中调用。
+     * 驳回不改变弹簧归属、不生成流水。锁顺序与通过路径保持一致。
+     */
     private ItemProcessResult doReject(Long itemId, String approver, String reason) {
-        TransferApplicationItem item = itemRepository.findById(itemId).orElse(null);
-        if (item == null) {
+        TransferApplicationItemRepository.ItemPreview preview = itemRepository.findPreviewById(itemId).orElse(null);
+        if (preview == null) {
             return ItemProcessResult.fail(itemId, null, "申请明细不存在");
         }
+        if (preview.getStatus() != ItemStatus.PENDING) {
+            return ItemProcessResult.fail(itemId, preview.getSpringCode(),
+                    "该申请已由 " + preview.getApprover() + " 处理（" + statusText(preview.getStatus()) + "），请勿重复操作");
+        }
+
+        // 与通过路径使用同一把申请单行锁，保证通过/驳回并发时状态汇总仍然准确
+        applicationRepository.findByIdForUpdate(preview.getApplicationId())
+                .orElseThrow(() -> new RuntimeException("划转申请不存在"));
+
+        TransferApplicationItem item = itemRepository.findByIdForUpdate(itemId)
+                .orElseThrow(() -> new RuntimeException("申请明细不存在"));
         if (item.getStatus() != ItemStatus.PENDING) {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "该申请已由 " + item.getApprover() + " 处理（" + statusText(item.getStatus()) + "），请勿重复操作");
@@ -250,16 +314,20 @@ public class TransferApplicationService {
     }
 
     /**
-     * 根据明细处理进度汇总申请单状态
+     * 根据明细处理进度汇总申请单状态。
+     * 必须在持有申请单行锁的事务中调用：FOR UPDATE 当前读保证看到其他事务已提交的最新明细，
+     * 从根本上避免并发处理后申请单状态与明细数量不一致（刷新页面后依然准确）
      */
     private void refreshApplicationStatus(Long applicationId) {
-        long pending = itemRepository.countByApplicationIdAndStatus(applicationId, ItemStatus.PENDING);
-        long approved = itemRepository.countByApplicationIdAndStatus(applicationId, ItemStatus.APPROVED);
-        long rejected = itemRepository.countByApplicationIdAndStatus(applicationId, ItemStatus.REJECTED);
+        long pending = itemRepository.countByApplicationIdAndStatusForUpdate(applicationId, ItemStatus.PENDING);
+        long approved = itemRepository.countByApplicationIdAndStatusForUpdate(applicationId, ItemStatus.APPROVED);
+        long rejected = itemRepository.countByApplicationIdAndStatusForUpdate(applicationId, ItemStatus.REJECTED);
         long total = pending + approved + rejected;
 
         ApplicationStatus status;
-        if (pending == total) {
+        if (total == 0) {
+            status = ApplicationStatus.PENDING;
+        } else if (pending == total) {
             status = ApplicationStatus.PENDING;
         } else if (approved == total) {
             status = ApplicationStatus.APPROVED;
