@@ -9,10 +9,17 @@ CREATE TABLE IF NOT EXISTS production_line (
     line_code VARCHAR(32) NOT NULL UNIQUE COMMENT '产线编码',
     line_name VARCHAR(64) NOT NULL COMMENT '产线名称',
     description VARCHAR(255) COMMENT '产线描述',
+    daily_capacity_threshold INT COMMENT '日承载阈值（单日可承载弹簧数量上限）',
+    elastic_min DECIMAL(10,4) COMMENT '适用弹力系数下限 N/mm',
+    elastic_max DECIMAL(10,4) COMMENT '适用弹力系数上限 N/mm',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_line_code (line_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产产线表';
+
+-- 兼容已初始化的旧库：补齐负载阈值相关列（列已存在时忽略报错）
+-- MySQL 8 不支持 ADD COLUMN IF NOT EXISTS，容器初始化时本脚本仅在首次建库执行，
+-- 存量库由 JPA ddl-auto=update 自动补列，LineThresholdInitializer 补默认值。
 
 CREATE TABLE IF NOT EXISTS spring_archive (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
@@ -101,11 +108,12 @@ CREATE TABLE IF NOT EXISTS transfer_application_log (
     FOREIGN KEY (application_id) REFERENCES transfer_application(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转申请操作记录表';
 
-INSERT IGNORE INTO production_line (line_code, line_name, description) VALUES
-('LINE-001', '装配一号线', '精密小型件装配线'),
-('LINE-002', '装配二号线', '中型件标准装配线'),
-('LINE-003', '装配三号线', '大型件重载装配线'),
-('LINE-004', '装配四号线', '自动化智能装配线');
+INSERT IGNORE INTO production_line
+    (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max) VALUES
+('LINE-001', '装配一号线', '精密小型件装配线', 2, 0.2000, 1.0000),
+('LINE-002', '装配二号线', '中型件标准装配线', 4, 2.0000, 3.0000),
+('LINE-003', '装配三号线', '大型件重载装配线', 3, 4.0000, 6.0000),
+('LINE-004', '装配四号线', '自动化智能装配线', 5, 0.5000, 3.5000);
 
 INSERT IGNORE INTO spring_archive (spring_code, model, elastic_coefficient, outer_diameter, current_line_id, initial_line_id) VALUES
 ('SP-2024-0001', 'C-Spring-05', 0.5000, 12.5000, 1, 1),

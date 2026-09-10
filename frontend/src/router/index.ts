@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import LoadDashboard from '@/pages/LoadDashboard.vue'
 import SpringArchive from '@/pages/SpringArchive.vue'
 import TransferOperation from '@/pages/TransferOperation.vue'
 import TransferApproval from '@/pages/TransferApproval.vue'
@@ -7,6 +8,12 @@ import TraceQuery from '@/pages/TraceQuery.vue'
 const routes = [
   {
     path: '/',
+    name: 'LoadDashboard',
+    component: LoadDashboard,
+    meta: { title: '产线负载预警看板' },
+  },
+  {
+    path: '/springs',
     name: 'SpringArchive',
     component: SpringArchive,
     meta: { title: '弹簧档案管理' },

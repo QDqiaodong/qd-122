@@ -11,6 +11,9 @@ import type {
   ApprovalRequest,
   ItemProcessResult,
   PageResponse,
+  LineLoadBoard,
+  LineLoadDetail,
+  LineThresholdUpdateRequest,
 } from '@/types'
 
 const request = axios.create({
@@ -69,4 +72,12 @@ export const applicationApi = {
 export const specApi = {
   getElasticForce: (params?: { min?: number; max?: number }) =>
     request.get<unknown, ApiResponse<number[]>>('/specs/elastic-force', { params }),
+}
+
+export const lineLoadApi = {
+  board: () => request.get<unknown, ApiResponse<LineLoadBoard>>('/line-load/board'),
+  detail: (lineId: number) =>
+    request.get<unknown, ApiResponse<LineLoadDetail>>(`/line-load/lines/${lineId}`),
+  updateThreshold: (lineId: number, data: LineThresholdUpdateRequest) =>
+    request.put<unknown, ApiResponse<ProductionLine>>(`/line-load/lines/${lineId}/threshold`, data),
 }

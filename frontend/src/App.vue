@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLineStore } from '@/stores/lines'
 import {
+  Gauge,
   Cog,
   GitBranch,
   ClipboardCheck,
@@ -18,7 +19,8 @@ const lineStore = useLineStore()
 const sidebarCollapsed = ref(false)
 
 const navItems = [
-  { path: '/', name: '弹簧档案管理', icon: Cog },
+  { path: '/', name: '产线负载预警', icon: Gauge },
+  { path: '/springs', name: '弹簧档案管理', icon: Cog },
   { path: '/transfer', name: '产线划转申请', icon: GitBranch },
   { path: '/approval', name: '划转申请审批', icon: ClipboardCheck },
   { path: '/trace', name: '划转轨迹查询', icon: History },
