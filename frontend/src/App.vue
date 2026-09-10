@@ -5,6 +5,7 @@ import { useLineStore } from '@/stores/lines'
 import {
   Cog,
   GitBranch,
+  ClipboardCheck,
   History,
   Menu,
   X,
@@ -18,7 +19,8 @@ const sidebarCollapsed = ref(false)
 
 const navItems = [
   { path: '/', name: '弹簧档案管理', icon: Cog },
-  { path: '/transfer', name: '产线划转操作', icon: GitBranch },
+  { path: '/transfer', name: '产线划转申请', icon: GitBranch },
+  { path: '/approval', name: '划转申请审批', icon: ClipboardCheck },
   { path: '/trace', name: '划转轨迹查询', icon: History },
 ]
 

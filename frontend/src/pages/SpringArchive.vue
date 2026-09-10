@@ -221,7 +221,7 @@ onMounted(async () => {
             :disabled="selectedIds.length === 0"
             @click="handleBatchTransfer"
           >
-            批量划转 ({{ selectedIds.length }})
+            批量划转申请 ({{ selectedIds.length }})
           </button>
           <button class="btn-industrial" @click="showAddModal = true">
             <Plus class="w-4 h-4 inline mr-1" />

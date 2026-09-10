@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import SpringArchive from '@/pages/SpringArchive.vue'
 import TransferOperation from '@/pages/TransferOperation.vue'
+import TransferApproval from '@/pages/TransferApproval.vue'
 import TraceQuery from '@/pages/TraceQuery.vue'
 
 const routes = [
@@ -14,7 +15,13 @@ const routes = [
     path: '/transfer',
     name: 'TransferOperation',
     component: TransferOperation,
-    meta: { title: '产线划转操作' },
+    meta: { title: '产线划转申请' },
+  },
+  {
+    path: '/approval',
+    name: 'TransferApproval',
+    component: TransferApproval,
+    meta: { title: '划转申请审批' },
   },
   {
     path: '/trace',

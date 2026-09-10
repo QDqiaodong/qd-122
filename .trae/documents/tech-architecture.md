@@ -131,12 +131,19 @@ interface TransferRecord {
   remark: string;
 }
 
-// 批量划转请求
-interface BatchTransferRequest {
+// 划转申请提交请求
+interface SubmitApplicationRequest {
   springIds: number[];
   toLineId: number;
-  operator: string;
-  remark: string;
+  applicant: string;  // 申请人
+  reason: string;     // 申请原因
+}
+
+// 审批请求（驳回时 reason 必填）
+interface ApprovalRequest {
+  itemIds: number[];
+  approver: string;
+  reason?: string;
 }
 ```
 
@@ -152,8 +159,12 @@ interface BatchTransferRequest {
 | GET | `/api/springs/{id}` | 获取单个弹簧详情 | path: id | `SpringArchive` |
 | POST | `/api/springs` | 新增弹簧档案 | body: SpringArchive | `SpringArchive` |
 | GET | `/api/springs/{id}/trace` | 查询弹簧划转轨迹 | path: id | `TransferRecord[]` |
-| POST | `/api/transfers` | 执行划转操作（支持批量） | body: BatchTransferRequest | `TransferRecord[]` |
 | GET | `/api/transfers` | 分页查询划转流水 | query: page, size, springId, lineId | `Page<TransferRecord>` |
+| POST | `/api/transfer-applications` | 提交划转申请（记录申请原因/申请人/时间） | body: SubmitApplicationRequest | `TransferApplication` |
+| GET | `/api/transfer-applications` | 分页查询划转申请 | query: page, size, status, keyword | `Page<TransferApplication>` |
+| GET | `/api/transfer-applications/{id}` | 申请详情（弹簧明细+审批状态+操作记录） | path: id | `ApplicationDetailResponse` |
+| POST | `/api/transfer-applications/approve` | 逐条/批量审批通过（通过后更新归属并生成流水） | body: ApprovalRequest | `ItemProcessResult[]` |
+| POST | `/api/transfer-applications/reject` | 逐条/批量驳回（驳回原因必填） | body: ApprovalRequest | `ItemProcessResult[]` |
 | GET | `/api/specs/elastic-force` | 从Redis获取弹力规格参数 | query: min, max | `List<Double>` |
 
 ## 5. 后端架构分层

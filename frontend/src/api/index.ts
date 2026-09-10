@@ -1,5 +1,17 @@
 import axios from 'axios'
-import type { ApiResponse, ProductionLine, SpringArchive, TransferRecord, BatchTransferRequest, PageResponse } from '@/types'
+import type {
+  ApiResponse,
+  ProductionLine,
+  SpringArchive,
+  TransferRecord,
+  TransferApplication,
+  ApplicationDetail,
+  ApplicationStatus,
+  SubmitApplicationRequest,
+  ApprovalRequest,
+  ItemProcessResult,
+  PageResponse,
+} from '@/types'
 
 const request = axios.create({
   baseURL: '/api',
@@ -39,8 +51,19 @@ export const springApi = {
 export const transferApi = {
   list: (params?: { springId?: number; lineId?: number; page?: number; size?: number }) =>
     request.get<unknown, ApiResponse<PageResponse<TransferRecord>>>('/transfers', { params }),
-  batchTransfer: (data: BatchTransferRequest) =>
-    request.post<unknown, ApiResponse<TransferRecord[]>>('/transfers', data),
+}
+
+export const applicationApi = {
+  list: (params?: { status?: ApplicationStatus; keyword?: string; page?: number; size?: number }) =>
+    request.get<unknown, ApiResponse<PageResponse<TransferApplication>>>('/transfer-applications', { params }),
+  detail: (id: number) =>
+    request.get<unknown, ApiResponse<ApplicationDetail>>(`/transfer-applications/${id}`),
+  submit: (data: SubmitApplicationRequest) =>
+    request.post<unknown, ApiResponse<TransferApplication>>('/transfer-applications', data),
+  approve: (data: ApprovalRequest) =>
+    request.post<unknown, ApiResponse<ItemProcessResult[]>>('/transfer-applications/approve', data),
+  reject: (data: ApprovalRequest) =>
+    request.post<unknown, ApiResponse<ItemProcessResult[]>>('/transfer-applications/reject', data),
 }
 
 export const specApi = {

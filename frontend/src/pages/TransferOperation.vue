@@ -1,38 +1,37 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
-import { springApi, transferApi } from '@/api'
-import type { SpringArchive, TransferRecord, BatchTransferRequest } from '@/types'
+import { springApi, applicationApi } from '@/api'
+import type { SpringArchive, TransferApplication, ApplicationStatus, SubmitApplicationRequest } from '@/types'
 import {
   GitBranch,
   Search,
   Factory,
-  CheckCircle2,
+  Send,
   ArrowLeftRight,
   Users,
   FileText,
   Clock,
-  ChevronRight,
   Cog,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
 const loading = ref(false)
+const submitting = ref(false)
 const springs = ref<SpringArchive[]>([])
 const selectedIds = ref<number[]>([])
-const recentTransfers = ref<TransferRecord[]>([])
+const recentApplications = ref<TransferApplication[]>([])
 
 const searchForm = reactive({
   lineId: null as number | null,
   keyword: '',
 })
 
-const transferForm = reactive<BatchTransferRequest>({
-  springIds: [],
+const applyForm = reactive<Omit<SubmitApplicationRequest, 'springIds'>>({
   toLineId: null as unknown as number,
-  operator: '',
-  remark: '',
+  applicant: '',
+  reason: '',
 })
 
 const selectedSprings = computed(() => {
@@ -59,10 +58,10 @@ async function fetchSprings() {
   }
 }
 
-async function fetchRecentTransfers() {
+async function fetchRecentApplications() {
   try {
-    const response = await transferApi.list({ size: 5 })
-    recentTransfers.value = response.data.content
+    const response = await applicationApi.list({ size: 5 })
+    recentApplications.value = response.data.content
   } catch {
     // ignore
   }
@@ -95,43 +94,60 @@ function toggleSelect(id: number) {
   }
 }
 
-async function handleTransfer() {
+async function handleSubmitApplication() {
   if (selectedIds.value.length === 0) {
     ElMessage.warning('请选择要划转的弹簧')
     return
   }
-  if (!transferForm.toLineId) {
+  if (!applyForm.toLineId) {
     ElMessage.warning('请选择目标产线')
     return
   }
-  if (!transferForm.operator.trim()) {
-    ElMessage.warning('请输入操作人')
+  if (!applyForm.applicant.trim()) {
+    ElMessage.warning('请输入申请人')
+    return
+  }
+  if (!applyForm.reason.trim()) {
+    ElMessage.warning('请输入申请原因')
     return
   }
 
-  const validSprings = selectedSprings.value.filter((s) => s.currentLineId !== transferForm.toLineId)
+  const validSprings = selectedSprings.value.filter((s) => s.currentLineId !== applyForm.toLineId)
   if (validSprings.length === 0) {
     ElMessage.warning('所选弹簧已归属目标产线，无需划转')
     return
   }
 
+  submitting.value = true
   try {
-    const response = await transferApi.batchTransfer({
+    const response = await applicationApi.submit({
       springIds: validSprings.map((s) => s.id),
-      toLineId: transferForm.toLineId,
-      operator: transferForm.operator.trim(),
-      remark: transferForm.remark.trim() || undefined,
+      toLineId: applyForm.toLineId,
+      applicant: applyForm.applicant.trim(),
+      reason: applyForm.reason.trim(),
     })
-    ElMessage.success(`成功划转 ${response.data.length} 条弹簧`)
+    const app = response.data
+    ElMessageBox.alert(
+      `申请单号：${app.applicationNo}，共 ${app.totalCount ?? validSprings.length} 条弹簧已提交，待审批通过后生效。`,
+      '划转申请提交成功',
+      { confirmButtonText: '知道了', type: 'success' }
+    )
     selectedIds.value = []
-    transferForm.toLineId = null as unknown as number
-    transferForm.operator = ''
-    transferForm.remark = ''
-    fetchSprings()
-    fetchRecentTransfers()
+    applyForm.toLineId = null as unknown as number
+    applyForm.reason = ''
+    fetchRecentApplications()
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '划转失败')
+    ElMessage.error(err instanceof Error ? err.message : '申请提交失败')
+  } finally {
+    submitting.value = false
   }
+}
+
+const statusMap: Record<ApplicationStatus, { text: string; class: string }> = {
+  PENDING: { text: '待审批', class: 'bg-amber-100 text-amber-700' },
+  APPROVED: { text: '全部通过', class: 'bg-green-100 text-green-700' },
+  REJECTED: { text: '全部驳回', class: 'bg-red-100 text-red-700' },
+  PARTIAL: { text: '部分处理', class: 'bg-blue-100 text-blue-700' },
 }
 
 function formatTime(time: string) {
@@ -141,7 +157,7 @@ function formatTime(time: string) {
 onMounted(async () => {
   await lineStore.fetchLines()
   fetchSprings()
-  fetchRecentTransfers()
+  fetchRecentApplications()
 })
 </script>
 
@@ -254,7 +270,7 @@ onMounted(async () => {
       <div class="card-industrial p-4">
         <div class="flex items-center gap-2 mb-4">
           <GitBranch class="w-5 h-5 text-accent-600" />
-          <h2 class="text-lg font-bold text-industrial-800">划转操作区</h2>
+          <h2 class="text-lg font-bold text-industrial-800">划转申请区</h2>
           <span class="ml-auto text-sm text-industrial-500">
             已选择 <span class="font-mono font-bold text-primary-700">{{ selectedIds.length }}</span> 项
           </span>
@@ -272,7 +288,7 @@ onMounted(async () => {
                 :key="line.id"
                 class="flex items-center gap-3 p-3 rounded-industrial cursor-pointer transition-all border-2"
                 :class="[
-                  transferForm.toLineId === line.id
+                  applyForm.toLineId === line.id
                     ? 'border-primary-600 bg-primary-50'
                     : 'border-transparent hover:bg-industrial-50',
                 ]"
@@ -280,7 +296,7 @@ onMounted(async () => {
                 <input
                   type="radio"
                   :value="line.id"
-                  v-model="transferForm.toLineId"
+                  v-model="applyForm.toLineId"
                   class="w-4 h-4 text-primary-600"
                 />
                 <div class="flex-1 min-w-0">
@@ -301,25 +317,25 @@ onMounted(async () => {
             <div>
               <label class="block text-sm font-medium text-industrial-700 mb-1">
                 <Users class="w-4 h-4 inline mr-1" />
-                操作人 <span class="text-red-500">*</span>
+                申请人 <span class="text-red-500">*</span>
               </label>
               <input
-                v-model="transferForm.operator"
+                v-model="applyForm.applicant"
                 type="text"
                 class="input-industrial"
-                placeholder="请输入操作人姓名"
+                placeholder="请输入申请人姓名"
                 maxlength="32"
               />
             </div>
             <div>
               <label class="block text-sm font-medium text-industrial-700 mb-1">
                 <FileText class="w-4 h-4 inline mr-1" />
-                划转备注
+                申请原因 <span class="text-red-500">*</span>
               </label>
               <textarea
-                v-model="transferForm.remark"
+                v-model="applyForm.reason"
                 class="input-industrial h-24 resize-none"
-                placeholder="请输入划转备注（可选）"
+                placeholder="请输入划转申请原因"
                 maxlength="255"
               ></textarea>
             </div>
@@ -327,7 +343,7 @@ onMounted(async () => {
 
           <div class="flex flex-col justify-center">
             <div class="card-industrial p-4 bg-industrial-50">
-              <h3 class="font-semibold text-industrial-800 mb-3">划转信息确认</h3>
+              <h3 class="font-semibold text-industrial-800 mb-3">申请信息确认</h3>
               <div class="space-y-2 text-sm">
                 <div class="flex justify-between">
                   <span class="text-industrial-600">选中数量：</span>
@@ -336,22 +352,25 @@ onMounted(async () => {
                 <div class="flex justify-between">
                   <span class="text-industrial-600">目标产线：</span>
                   <span class="font-medium text-accent-600">
-                    {{ transferForm.toLineId ? lineStore.getLineName(transferForm.toLineId) : '未选择' }}
+                    {{ applyForm.toLineId ? lineStore.getLineName(applyForm.toLineId) : '未选择' }}
                   </span>
                 </div>
                 <div class="flex justify-between">
-                  <span class="text-industrial-600">操作人：</span>
-                  <span class="font-medium">{{ transferForm.operator || '未填写' }}</span>
+                  <span class="text-industrial-600">申请人：</span>
+                  <span class="font-medium">{{ applyForm.applicant || '未填写' }}</span>
                 </div>
                 <div class="pt-2 mt-2 border-t border-industrial-200">
                   <button
                     class="w-full btn-industrial-accent"
-                    :disabled="selectedIds.length === 0 || !transferForm.toLineId || !transferForm.operator"
-                    @click="handleTransfer"
+                    :disabled="submitting || selectedIds.length === 0 || !applyForm.toLineId || !applyForm.applicant || !applyForm.reason"
+                    @click="handleSubmitApplication"
                   >
-                    <CheckCircle2 class="w-4 h-4 inline mr-1" />
-                    确认划转
+                    <Send class="w-4 h-4 inline mr-1" />
+                    {{ submitting ? '提交中...' : '提交划转申请' }}
                   </button>
+                  <p class="text-xs text-industrial-400 mt-2 text-center">
+                    申请提交后需审批通过才会执行划转
+                  </p>
                 </div>
               </div>
             </div>
@@ -364,42 +383,48 @@ onMounted(async () => {
       <div class="card-industrial p-4">
         <div class="flex items-center gap-2 mb-4">
           <Clock class="w-5 h-5 text-primary-600" />
-          <h2 class="text-lg font-bold text-industrial-800">最近划转记录</h2>
+          <h2 class="text-lg font-bold text-industrial-800">最近划转申请</h2>
         </div>
         <div class="space-y-3">
           <div
-            v-for="record in recentTransfers"
-            :key="record.id"
+            v-for="app in recentApplications"
+            :key="app.id"
             class="p-3 bg-industrial-50 rounded-industrial animate-stagger"
-            :style="{ animationDelay: `${recentTransfers.indexOf(record) * 50}ms` }"
+            :style="{ animationDelay: `${recentApplications.indexOf(app) * 50}ms` }"
           >
             <div class="flex items-center justify-between mb-2">
               <span class="font-mono text-xs font-medium text-primary-700">
-                {{ record.springCode }}
+                {{ app.applicationNo }}
               </span>
-              <span class="text-xs text-industrial-400 font-mono">
-                {{ formatTime(record.operateTime) }}
+              <span
+                class="px-2 py-0.5 rounded text-xs font-medium"
+                :class="statusMap[app.status].class"
+              >
+                {{ statusMap[app.status].text }}
               </span>
             </div>
             <div class="flex items-center gap-2 text-sm">
-              <span class="px-2 py-0.5 bg-primary-100 text-primary-700 rounded text-xs">
-                {{ record.fromLineName }}
-              </span>
-              <ChevronRight class="w-4 h-4 text-industrial-400" />
+              <span class="text-industrial-600 text-xs">目标产线</span>
               <span class="px-2 py-0.5 bg-accent-100 text-accent-700 rounded text-xs">
-                {{ record.toLineName }}
+                {{ app.toLineName }}
+              </span>
+              <span class="text-xs text-industrial-400">
+                共 {{ app.totalCount ?? '-' }} 条
               </span>
             </div>
-            <div class="mt-2 text-xs text-industrial-500">
-              <Users class="w-3 h-3 inline mr-1" />
-              {{ record.operator }}
+            <div class="mt-2 flex items-center justify-between text-xs text-industrial-500">
+              <span>
+                <Users class="w-3 h-3 inline mr-1" />
+                {{ app.applicant }}
+              </span>
+              <span class="font-mono">{{ formatTime(app.applyTime) }}</span>
             </div>
           </div>
           <div
-            v-if="recentTransfers.length === 0"
+            v-if="recentApplications.length === 0"
             class="text-center py-8 text-industrial-400 text-sm"
           >
-            暂无划转记录
+            暂无划转申请
           </div>
         </div>
       </div>

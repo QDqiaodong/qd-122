@@ -50,6 +50,57 @@ CREATE TABLE IF NOT EXISTS transfer_record (
     FOREIGN KEY (to_line_id) REFERENCES production_line(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转流水记录表';
 
+CREATE TABLE IF NOT EXISTS transfer_application (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    application_no VARCHAR(32) NOT NULL UNIQUE COMMENT '申请单号',
+    applicant VARCHAR(32) NOT NULL COMMENT '申请人',
+    apply_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '申请时间',
+    to_line_id BIGINT NOT NULL COMMENT '目标产线ID',
+    to_line_name VARCHAR(64) NOT NULL COMMENT '目标产线名称',
+    reason VARCHAR(255) NOT NULL COMMENT '申请原因',
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '申请单状态：PENDING-待审批 APPROVED-全部通过 REJECTED-全部驳回 PARTIAL-部分处理',
+    INDEX idx_status (status),
+    INDEX idx_apply_time (apply_time),
+    FOREIGN KEY (to_line_id) REFERENCES production_line(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转申请单表';
+
+CREATE TABLE IF NOT EXISTS transfer_application_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    application_id BIGINT NOT NULL COMMENT '划转申请单ID',
+    spring_id BIGINT NOT NULL COMMENT '弹簧ID',
+    spring_code VARCHAR(32) NOT NULL COMMENT '弹簧编号',
+    model VARCHAR(64) NOT NULL COMMENT '弹簧型号',
+    elastic_coefficient DECIMAL(10,4) NOT NULL COMMENT '弹力系数 N/mm',
+    outer_diameter DECIMAL(10,4) NOT NULL COMMENT '外径尺寸 mm',
+    from_line_id BIGINT NOT NULL COMMENT '申请时所在产线ID',
+    from_line_name VARCHAR(64) NOT NULL COMMENT '申请时所在产线名称',
+    to_line_id BIGINT NOT NULL COMMENT '目标产线ID',
+    to_line_name VARCHAR(64) NOT NULL COMMENT '目标产线名称',
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '明细状态：PENDING-待审批 APPROVED-已通过 REJECTED-已驳回',
+    approver VARCHAR(32) COMMENT '审批人',
+    approve_time DATETIME COMMENT '审批时间',
+    reject_reason VARCHAR(255) COMMENT '驳回原因',
+    transfer_record_id BIGINT COMMENT '审批通过后生成的划转流水ID',
+    INDEX idx_application_id (application_id),
+    INDEX idx_spring_status (spring_id, status),
+    FOREIGN KEY (application_id) REFERENCES transfer_application(id),
+    FOREIGN KEY (spring_id) REFERENCES spring_archive(id),
+    FOREIGN KEY (from_line_id) REFERENCES production_line(id),
+    FOREIGN KEY (to_line_id) REFERENCES production_line(id),
+    FOREIGN KEY (transfer_record_id) REFERENCES transfer_record(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转申请明细表';
+
+CREATE TABLE IF NOT EXISTS transfer_application_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    application_id BIGINT NOT NULL COMMENT '划转申请单ID',
+    action VARCHAR(16) NOT NULL COMMENT '操作类型：SUBMIT-提交申请 APPROVE-审批通过 REJECT-审批驳回',
+    operator VARCHAR(32) NOT NULL COMMENT '操作人',
+    operate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    detail VARCHAR(512) COMMENT '操作详情',
+    INDEX idx_application_id (application_id),
+    FOREIGN KEY (application_id) REFERENCES transfer_application(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转申请操作记录表';
+
 INSERT IGNORE INTO production_line (line_code, line_name, description) VALUES
 ('LINE-001', '装配一号线', '精密小型件装配线'),
 ('LINE-002', '装配二号线', '中型件标准装配线'),

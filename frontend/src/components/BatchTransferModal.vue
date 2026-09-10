@@ -2,8 +2,8 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
-import { transferApi } from '@/api'
-import type { SpringArchive, TransferRecord } from '@/types'
+import { applicationApi } from '@/api'
+import type { SpringArchive, TransferApplication } from '@/types'
 import {
   ArrowRight,
   Users,
@@ -18,13 +18,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
-  (e: 'success', records: TransferRecord[]): void
+  (e: 'success', application: TransferApplication): void
 }>()
 
 const lineStore = useLineStore()
 const toLineId = ref<number | null>(null)
-const operator = ref('')
-const remark = ref('')
+const applicant = ref('')
+const reason = ref('')
 const submitting = ref(false)
 
 const availableTargetLines = computed(() => {
@@ -48,8 +48,12 @@ async function handleSubmit() {
     ElMessage.warning('请选择目标产线')
     return
   }
-  if (!operator.value.trim()) {
-    ElMessage.warning('请输入操作人')
+  if (!applicant.value.trim()) {
+    ElMessage.warning('请输入申请人')
+    return
+  }
+  if (!reason.value.trim()) {
+    ElMessage.warning('请输入申请原因')
     return
   }
   if (validSprings.value.length === 0) {
@@ -59,17 +63,17 @@ async function handleSubmit() {
 
   submitting.value = true
   try {
-    const response = await transferApi.batchTransfer({
+    const response = await applicationApi.submit({
       springIds: validSprings.value.map((s) => s.id),
       toLineId: toLineId.value,
-      operator: operator.value.trim(),
-      remark: remark.value.trim() || undefined,
+      applicant: applicant.value.trim(),
+      reason: reason.value.trim(),
     })
-    ElMessage.success(`成功划转 ${response.data.length} 条弹簧`)
+    ElMessage.success(`划转申请 ${response.data.applicationNo} 提交成功，待审批`)
     emit('success', response.data)
     handleClose()
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '划转失败')
+    ElMessage.error(err instanceof Error ? err.message : '申请提交失败')
   } finally {
     submitting.value = false
   }
@@ -78,8 +82,8 @@ async function handleSubmit() {
 function handleClose() {
   emit('update:visible', false)
   toLineId.value = null
-  operator.value = ''
-  remark.value = ''
+  applicant.value = ''
+  reason.value = ''
 }
 
 watch(
@@ -96,7 +100,7 @@ watch(
   <el-dialog
     :model-value="visible"
     width="800px"
-    title="批量产线划转"
+    title="批量划转申请"
     @update:model-value="(val) => emit('update:visible', val)"
     @close="handleClose"
     class="transfer-modal"
@@ -148,37 +152,37 @@ watch(
             <span class="w-6 h-6 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center text-xs font-bold">
               2
             </span>
-            登记操作信息
+            登记申请信息
           </div>
           <div class="card-industrial p-4 space-y-4">
             <div>
               <label class="block text-sm font-medium text-industrial-700 mb-1">
                 <Users class="w-4 h-4 inline mr-1" />
-                操作人 <span class="text-red-500">*</span>
+                申请人 <span class="text-red-500">*</span>
               </label>
               <input
-                v-model="operator"
+                v-model="applicant"
                 type="text"
                 class="input-industrial"
-                placeholder="请输入操作人姓名"
+                placeholder="请输入申请人姓名"
                 maxlength="32"
               />
             </div>
             <div>
               <label class="block text-sm font-medium text-industrial-700 mb-1">
                 <FileText class="w-4 h-4 inline mr-1" />
-                划转备注
+                申请原因 <span class="text-red-500">*</span>
               </label>
               <textarea
-                v-model="remark"
+                v-model="reason"
                 class="input-industrial h-24 resize-none"
-                placeholder="请输入划转备注（可选）"
+                placeholder="请输入划转申请原因"
                 maxlength="255"
               ></textarea>
             </div>
 
             <div class="mt-4 p-3 bg-industrial-50 rounded-industrial text-sm">
-              <div class="font-medium text-industrial-700 mb-2">划转信息确认</div>
+              <div class="font-medium text-industrial-700 mb-2">申请信息确认</div>
               <div class="space-y-1 text-industrial-600">
                 <div class="flex justify-between">
                   <span>选中弹簧数：</span>
@@ -255,17 +259,22 @@ watch(
     </div>
 
     <template #footer>
-      <div class="flex justify-end gap-3">
-        <button class="btn-industrial-outline" @click="handleClose">
-          取消
-        </button>
-        <button
-          class="btn-industrial-accent"
-          :disabled="submitting || validSprings.length === 0"
-          @click="handleSubmit"
-        >
-          {{ submitting ? '划转中...' : `确认划转 (${validSprings.length})` }}
-        </button>
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-xs text-industrial-400">
+          申请提交后需审批通过才会执行划转
+        </p>
+        <div class="flex gap-3">
+          <button class="btn-industrial-outline" @click="handleClose">
+            取消
+          </button>
+          <button
+            class="btn-industrial-accent"
+            :disabled="submitting || validSprings.length === 0"
+            @click="handleSubmit"
+          >
+            {{ submitting ? '提交中...' : `提交划转申请 (${validSprings.length})` }}
+          </button>
+        </div>
       </div>
     </template>
   </el-dialog>
