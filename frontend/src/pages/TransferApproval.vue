@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { applicationApi } from '@/api'
 import type {
@@ -21,21 +22,43 @@ import {
   History,
   Cog,
   ChevronRight,
+  RefreshCw,
 } from 'lucide-vue-next'
+
+const route = useRoute()
+const router = useRouter()
+
+const VALID_STATUSES: ApplicationStatus[] = ['PENDING', 'PARTIAL', 'APPROVED', 'REJECTED']
+
+function parseStatus(value: unknown): ApplicationStatus | null {
+  return typeof value === 'string' && (VALID_STATUSES as string[]).includes(value)
+    ? (value as ApplicationStatus)
+    : null
+}
 
 const loading = ref(false)
 const applications = ref<TransferApplication[]>([])
 
+// 筛选条件在页面刷新后仍需保留：以路由 query 为持久化载体，刷新（F5）后从 URL 还原
 const searchForm = reactive({
-  status: null as ApplicationStatus | null,
-  keyword: '',
+  status: parseStatus(route.query.status),
+  keyword: typeof route.query.keyword === 'string' ? route.query.keyword : '',
 })
 
 const pagination = reactive({
-  page: 0,
+  page: Math.max(0, (Number(route.query.page) || 1) - 1),
   size: 10,
   total: 0,
 })
+
+/** 将当前筛选条件与页码同步到 URL（replace 不产生多余历史记录），刷新后原样恢复 */
+function syncQuery() {
+  const query: Record<string, string> = {}
+  if (searchForm.status) query.status = searchForm.status
+  if (searchForm.keyword.trim()) query.keyword = searchForm.keyword.trim()
+  if (pagination.page > 0) query.page = String(pagination.page + 1)
+  router.replace({ name: 'TransferApproval', query })
+}
 
 // 申请详情
 const detailVisible = ref(false)
@@ -76,12 +99,20 @@ async function fetchApplications() {
   try {
     const response = await applicationApi.list({
       status: searchForm.status ?? undefined,
-      keyword: searchForm.keyword || undefined,
+      keyword: searchForm.keyword.trim() || undefined,
       page: pagination.page,
       size: pagination.size,
     })
     applications.value = response.data.content
     pagination.total = response.data.totalElements
+    // 筛选条件下处理完最后一页数据后，自动回退到上一有数据的页，避免停留在空页
+    if (applications.value.length === 0 && pagination.total > 0 && pagination.page > 0) {
+      pagination.page = Math.max(0, Math.ceil(pagination.total / pagination.size) - 1)
+      syncQuery()
+      await fetchApplications()
+    }
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '加载申请列表失败')
   } finally {
     loading.value = false
   }
@@ -89,6 +120,7 @@ async function fetchApplications() {
 
 function handleSearch() {
   pagination.page = 0
+  syncQuery()
   fetchApplications()
 }
 
@@ -96,11 +128,23 @@ function handleReset() {
   searchForm.status = null
   searchForm.keyword = ''
   pagination.page = 0
+  syncQuery()
   fetchApplications()
+}
+
+/** 手动刷新：保留当前筛选条件，仅重新拉取列表，打开详情时同步刷新详情 */
+async function handleRefresh() {
+  const tasks: Promise<unknown>[] = [fetchApplications()]
+  if (detailVisible.value && detail.value) {
+    tasks.push(fetchDetail(detail.value.application.id))
+  }
+  await Promise.all(tasks)
+  ElMessage.success('已刷新为最新状态')
 }
 
 function handlePageChange(page: number) {
   pagination.page = page - 1
+  syncQuery()
   fetchApplications()
 }
 
@@ -115,6 +159,8 @@ async function fetchDetail(id: number) {
   try {
     const response = await applicationApi.detail(id)
     detail.value = response.data
+    // 详情每次都以服务端最新状态为准；已处理明细（可能已被其他审批人处理）从勾选中剔除，
+    // 杜绝拿着旧勾选集对已通过/已驳回明细再次发起审批
     selectedItemIds.value = selectedItemIds.value.filter((itemId) =>
       response.data.items.some((i) => i.id === itemId && i.status === 'PENDING')
     )

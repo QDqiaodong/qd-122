@@ -42,7 +42,18 @@ request.interceptors.response.use(
     return res as any
   },
   (error) => {
-    return Promise.reject(error)
+    // 优先提取后端返回的明确业务原因，避免页面上只出现 "Request failed with status code 500"
+    const backendMessage = error?.response?.data?.message
+    if (backendMessage) {
+      return Promise.reject(new Error(backendMessage))
+    }
+    if (error?.code === 'ECONNABORTED') {
+      return Promise.reject(new Error('请求超时，请稍后重试'))
+    }
+    if (error?.response) {
+      return Promise.reject(new Error(`服务异常（${error.response.status}），请稍后重试`))
+    }
+    return Promise.reject(new Error('网络异常，无法连接服务器，请检查网络后重试'))
   }
 )
 
