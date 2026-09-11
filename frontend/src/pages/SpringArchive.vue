@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
 import { springApi, specApi } from '@/api'
-import type { SpringArchive as SpringArchiveType } from '@/types'
+import type { SpringArchive as SpringArchiveType, SealStatus } from '@/types'
 import BatchTransferModal from '@/components/BatchTransferModal.vue'
+import SpringSealModal from '@/components/SpringSealModal.vue'
 import {
   Plus,
   Search,
@@ -15,6 +16,8 @@ import {
   Calendar,
   CheckCircle2,
   XCircle,
+  Lock,
+  LockOpen,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -24,10 +27,18 @@ const selectedIds = ref<number[]>([])
 const showAddModal = ref(false)
 const showTransferModal = ref(false)
 
+/** 封存状态筛选持久化：刷新后保持筛选状态 */
+const SEAL_FILTER_KEY = 'spring-archive-seal-status'
+
 const searchForm = reactive({
   lineId: null as number | null,
+  sealStatus: (localStorage.getItem(SEAL_FILTER_KEY) ?? '') as SealStatus | '',
   keyword: '',
 })
+
+const sealModalVisible = ref(false)
+const sealModalMode = ref<'seal' | 'unseal'>('seal')
+const sealTarget = ref<SpringArchiveType | null>(null)
 
 const addForm = reactive({
   springCode: '',
@@ -49,6 +60,15 @@ const selectedSprings = computed(() => {
   return springs.value.filter((s) => selectedIds.value.includes(s.id))
 })
 
+/** 封存中的弹簧不可勾选进入划转申请 */
+const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
+
+// 封存状态筛选变化即持久化，刷新页面后保持
+watch(
+  () => searchForm.sealStatus,
+  (v) => localStorage.setItem(SEAL_FILTER_KEY, v)
+)
+
 const springsByLine = computed(() => {
   const map = new Map<number, SpringArchiveType[]>()
   lineStore.lines.forEach((line) => map.set(line.id, []))
@@ -65,12 +85,17 @@ async function fetchSprings() {
   try {
     const response = await springApi.list({
       lineId: searchForm.lineId ?? undefined,
+      sealStatus: searchForm.sealStatus || undefined,
       keyword: searchForm.keyword || undefined,
       page: pagination.page,
       size: pagination.size,
     })
     springs.value = response.data.content
     pagination.total = response.data.totalElements
+    // 封存状态变化后，剔除已不可勾选的弹簧
+    selectedIds.value = selectedIds.value.filter((id) =>
+      selectableSprings.value.some((s) => s.id === id)
+    )
   } finally {
     loading.value = false
   }
@@ -92,6 +117,7 @@ function handleSearch() {
 
 function handleReset() {
   searchForm.lineId = null
+  searchForm.sealStatus = ''
   searchForm.keyword = ''
   pagination.page = 0
   fetchSprings()
@@ -163,6 +189,22 @@ function handleBatchTransfer() {
   showTransferModal.value = true
 }
 
+function handleSeal(spring: SpringArchiveType) {
+  sealTarget.value = spring
+  sealModalMode.value = 'seal'
+  sealModalVisible.value = true
+}
+
+function handleUnseal(spring: SpringArchiveType) {
+  sealTarget.value = spring
+  sealModalMode.value = 'unseal'
+  sealModalVisible.value = true
+}
+
+function handleSealSaved() {
+  fetchSprings()
+}
+
 function handleTransferSuccess() {
   selectedIds.value = []
   fetchSprings()
@@ -197,6 +239,19 @@ onMounted(async () => {
             <option v-for="line in lineStore.lines" :key="line.id" :value="line.id">
               {{ line.lineName }}
             </option>
+          </select>
+        </div>
+        <div class="flex items-center gap-2">
+          <Lock class="w-5 h-5 text-primary-600" />
+          <span class="text-sm font-medium text-industrial-700">封存状态：</span>
+          <select
+            v-model="searchForm.sealStatus"
+            class="input-industrial w-36"
+            @change="handleSearch"
+          >
+            <option value="">全部状态</option>
+            <option value="NONE">正常</option>
+            <option value="SEALED">封存中</option>
           </select>
         </div>
         <div class="flex items-center gap-2 flex-1 max-w-md">
@@ -259,10 +314,10 @@ onMounted(async () => {
               <th class="w-12">
                 <input
                   type="checkbox"
-                  :checked="selectedIds.length === springs.length && springs.length > 0"
+                  :checked="selectedIds.length === selectableSprings.length && selectableSprings.length > 0"
                   @change="(e) => {
                     const checked = (e.target as HTMLInputElement).checked
-                    selectedIds = checked ? springs.map(s => s.id) : []
+                    selectedIds = checked ? selectableSprings.map(s => s.id) : []
                   }"
                   class="w-4 h-4"
                 />
@@ -273,7 +328,9 @@ onMounted(async () => {
               <th>外径尺寸 (mm)</th>
               <th>当前归属产线</th>
               <th>初始归属产线</th>
+              <th>封存状态</th>
               <th>创建时间</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody v-if="!loading && springs.length > 0">
@@ -281,6 +338,7 @@ onMounted(async () => {
               v-for="(spring, index) in springs"
               :key="spring.id"
               class="animate-stagger"
+              :class="{ 'bg-red-50/50': spring.sealStatus === 'SEALED' }"
               :style="handleRowAnimation(index)"
             >
               <td>
@@ -288,7 +346,9 @@ onMounted(async () => {
                   type="checkbox"
                   :value="spring.id"
                   v-model="selectedIds"
-                  class="w-4 h-4"
+                  :disabled="spring.sealStatus === 'SEALED'"
+                  :title="spring.sealStatus === 'SEALED' ? '封存中的弹簧不能进入划转申请' : ''"
+                  class="w-4 h-4 disabled:opacity-40 disabled:cursor-not-allowed"
                 />
               </td>
               <td class="font-mono text-sm font-medium text-primary-800">
@@ -316,15 +376,50 @@ onMounted(async () => {
                   {{ spring.initialLineName || lineStore.getLineName(spring.initialLineId) }}
                 </span>
               </td>
+              <td>
+                <template v-if="spring.sealStatus === 'SEALED'">
+                  <span
+                    class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-medium cursor-help"
+                    :title="`封存原因：${spring.sealReason || '未登记'}`"
+                  >
+                    <Lock class="w-3 h-3 inline mr-1" />
+                    封存中
+                  </span>
+                  <div v-if="spring.sealExpectedUnsealDate" class="text-xs text-red-500 mt-1 font-mono">
+                    预计解封 {{ spring.sealExpectedUnsealDate }}
+                  </div>
+                </template>
+                <span v-else class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs">
+                  正常
+                </span>
+              </td>
               <td class="text-sm text-industrial-500 font-mono">
                 <Calendar class="w-4 h-4 inline mr-1" />
                 {{ spring.createTime }}
+              </td>
+              <td>
+                <button
+                  v-if="spring.sealStatus === 'SEALED'"
+                  class="px-2 py-1 text-xs rounded border border-green-300 text-green-700 hover:bg-green-50 transition-colors"
+                  @click="handleUnseal(spring)"
+                >
+                  <LockOpen class="w-3 h-3 inline mr-1" />
+                  解封
+                </button>
+                <button
+                  v-else
+                  class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+                  @click="handleSeal(spring)"
+                >
+                  <Lock class="w-3 h-3 inline mr-1" />
+                  封存
+                </button>
               </td>
             </tr>
           </tbody>
           <tbody v-else-if="!loading">
             <tr>
-              <td colspan="8" class="text-center py-16 text-industrial-400">
+              <td colspan="10" class="text-center py-16 text-industrial-400">
                 <Cog class="w-16 h-16 mx-auto mb-4 opacity-30" />
                 <p class="text-lg">暂无弹簧档案</p>
                 <p class="text-sm mt-2">点击右上角"新增弹簧"按钮创建档案</p>
@@ -333,7 +428,7 @@ onMounted(async () => {
           </tbody>
           <tbody v-else>
             <tr>
-              <td colspan="8" class="text-center py-16 text-industrial-400">
+              <td colspan="10" class="text-center py-16 text-industrial-400">
                 <div class="animate-pulse">加载中...</div>
               </td>
             </tr>
@@ -464,6 +559,13 @@ onMounted(async () => {
       v-model:visible="showTransferModal"
       :selected-springs="selectedSprings"
       @success="handleTransferSuccess"
+    />
+
+    <SpringSealModal
+      v-model:visible="sealModalVisible"
+      :spring="sealTarget"
+      :mode="sealModalMode"
+      @saved="handleSealSaved"
     />
   </div>
 </template>

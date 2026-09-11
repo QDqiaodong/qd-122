@@ -3,6 +3,9 @@ import type {
   ApiResponse,
   ProductionLine,
   SpringArchive,
+  SealRequest,
+  UnsealRequest,
+  SealStatus,
   TransferRecord,
   TransferApplication,
   ApplicationDetail,
@@ -51,13 +54,17 @@ export const lineApi = {
 }
 
 export const springApi = {
-  list: (params?: { lineId?: number; keyword?: string; page?: number; size?: number }) =>
+  list: (params?: { lineId?: number; sealStatus?: SealStatus; keyword?: string; page?: number; size?: number }) =>
     request.get<unknown, ApiResponse<PageResponse<SpringArchive>>>('/springs', { params }),
   groupByLine: () => request.get<unknown, ApiResponse<Record<number, SpringArchive[]>>>('/springs/group-by-line'),
   get: (id: number) => request.get<unknown, ApiResponse<SpringArchive>>(`/springs/${id}`),
   create: (data: Omit<SpringArchive, 'id' | 'createTime' | 'updateTime' | 'currentLineName' | 'initialLineName'>) =>
     request.post<unknown, ApiResponse<SpringArchive>>('/springs', data),
   getTrace: (id: number) => request.get<unknown, ApiResponse<TransferRecord[]>>(`/springs/${id}/trace`),
+  seal: (id: number, data: SealRequest) =>
+    request.post<unknown, ApiResponse<SpringArchive>>(`/springs/${id}/seal`, data),
+  unseal: (id: number, data: UnsealRequest) =>
+    request.post<unknown, ApiResponse<SpringArchive>>(`/springs/${id}/unseal`, data),
 }
 
 export const transferApi = {

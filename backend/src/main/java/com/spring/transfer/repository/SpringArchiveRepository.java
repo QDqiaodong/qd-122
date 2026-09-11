@@ -1,5 +1,6 @@
 package com.spring.transfer.repository;
 
+import com.spring.transfer.common.SealStatus;
 import com.spring.transfer.entity.SpringArchive;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
@@ -33,6 +34,7 @@ public interface SpringArchiveRepository extends JpaRepository<SpringArchive, Lo
     
     @Query("SELECT s FROM SpringArchive s WHERE " +
            "(:lineId IS NULL OR s.currentLineId = :lineId) AND " +
+           "(:sealStatus IS NULL OR s.sealStatus = :sealStatus) AND " +
            "(:keyword IS NULL OR s.springCode LIKE %:keyword% OR s.model LIKE %:keyword%)")
-    Page<SpringArchive> findByCondition(Long lineId, String keyword, Pageable pageable);
+    Page<SpringArchive> findByCondition(Long lineId, SealStatus sealStatus, String keyword, Pageable pageable);
 }

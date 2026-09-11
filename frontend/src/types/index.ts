@@ -134,8 +134,33 @@ export interface SpringArchive {
   currentLineName: string
   initialLineId: number
   initialLineName?: string
+  /** 封存状态：NONE-正常 SEALED-封存中（封存期间禁止划转申请与调拨模拟） */
+  sealStatus?: SealStatus
+  sealReason?: string
+  sealExpectedUnsealDate?: string
+  sealOperator?: string
+  sealTime?: string
+  unsealOperator?: string
+  unsealTime?: string
+  unsealConclusion?: string
   createTime: string
   updateTime: string
+}
+
+/** 封存状态：正常 / 封存中 */
+export type SealStatus = 'NONE' | 'SEALED'
+
+/** 封存登记：质量员登记封存原因与预计解封日 */
+export interface SealRequest {
+  operator: string
+  reason: string
+  expectedUnsealDate: string
+}
+
+/** 解封：必须填写结论 */
+export interface UnsealRequest {
+  operator: string
+  conclusion: string
 }
 
 export interface TransferRecord {

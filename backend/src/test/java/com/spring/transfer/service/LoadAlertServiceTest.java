@@ -48,18 +48,18 @@ class LoadAlertServiceTest {
         ObjectMapper objectMapper = new ObjectMapper();
         objectMapper.findAndRegisterModules();
         // 事务模板在单测中直接执行回调：getTransaction/commit/rollback 均为空动作
-        when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        lenient().when(transactionManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
         LoadAlertService proxy = mock(LoadAlertService.class);
         loadAlertService = spy(new LoadAlertService(eventRepository, handleLogRepository,
                 objectMapper, transactionManager, proxy));
         // 绕过自代理 REQUIRES_NEW：直接执行同步逻辑
-        doAnswer(inv -> {
+        lenient().doAnswer(inv -> {
             loadAlertService.syncOneInNewTransaction(inv.getArgument(0));
             return null;
         }).when(proxy).syncOneInNewTransaction(any());
-        when(eventRepository.existsByEventNo(any())).thenReturn(false);
-        when(eventRepository.saveAndFlush(any(LoadAlertEvent.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(eventRepository.save(any(LoadAlertEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(eventRepository.existsByEventNo(any())).thenReturn(false);
+        lenient().when(eventRepository.saveAndFlush(any(LoadAlertEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        lenient().when(eventRepository.save(any(LoadAlertEvent.class))).thenAnswer(inv -> inv.getArgument(0));
     }
 
     @Test
@@ -141,7 +141,7 @@ class LoadAlertServiceTest {
         AlertDispositionRequest request = new AlertDispositionRequest();
         request.setAction("CONFIRM");
         request.setOperator("调度员A");
-        when(eventRepository.findById(10L)).thenReturn(Optional.of(event(10L, 1L, AlertStatus.PENDING)));
+        // 责任人与处置计划的校验在加载事件之前，无需 stub 事件查询
 
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> loadAlertService.confirm(10L, request));

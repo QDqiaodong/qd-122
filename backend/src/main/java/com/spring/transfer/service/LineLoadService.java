@@ -15,7 +15,6 @@ import com.spring.transfer.entity.TransferRecord;
 import com.spring.transfer.repository.ProductionLineRepository;
 import com.spring.transfer.repository.SpringArchiveRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,7 +44,6 @@ import java.util.stream.Collectors;
  * 看板汇总数字与分组列表基于同一次计算结果组装，保证统计与列表一致。
  */
 @Service
-@RequiredArgsConstructor
 public class LineLoadService {
     /** 划转趋势统计窗口（天） */
     public static final int TREND_DAYS = 7;
@@ -190,6 +188,14 @@ public class LineLoadService {
         if (!sameLineCodes.isEmpty()) {
             throw new RuntimeException("以下弹簧已归属拟接收产线「" + toLine.getLineName() + "」，无需划转: "
                     + String.join(", ", sameLineCodes));
+        }
+
+        // 封存校验：封存中的弹簧（抽检不合格/待复测）不能进入调拨模拟，提示中给出封存原因与预计解封日
+        List<SpringArchive> sealedSprings = selected.stream().filter(SpringArchive::isSealed).toList();
+        if (!sealedSprings.isEmpty()) {
+            String details = sealedSprings.stream().map(SpringArchive::getSealSummary)
+                    .collect(Collectors.joining("；"));
+            throw new RuntimeException("以下弹簧处于封存状态，封存期间不能进入调拨模拟，请先解封: " + details);
         }
 
         Map<Long, List<SpringArchive>> springsByLine = allSprings.stream()

@@ -1,5 +1,6 @@
 package com.spring.transfer.service;
 
+import com.spring.transfer.common.SealStatus;
 import com.spring.transfer.dto.LineSimulationEstimate;
 import com.spring.transfer.dto.LoadStatus;
 import com.spring.transfer.dto.SimulationEstimateResponse;
@@ -15,6 +16,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -145,6 +147,26 @@ class LineLoadServiceSimulationTest {
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> lineLoadService.simulateTransfer(List.of(999L), 4L));
         assertTrue(ex.getMessage().contains("不存在"));
+    }
+
+    @Test
+    void simulateTransferRejectsSealedSpringsWithClearReason() {
+        when(productionLineRepository.findById(4L)).thenReturn(Optional.of(lines.get(3)));
+
+        // SP-2024-0001 抽检不合格被封存，封存期间不能进入调拨模拟
+        SpringArchive sealed = springs.get(0);
+        sealed.setSealStatus(SealStatus.SEALED);
+        sealed.setSealReason("抽检不合格，待复测");
+        sealed.setSealExpectedUnsealDate(LocalDate.of(2026, 9, 20));
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> lineLoadService.simulateTransfer(List.of(1L, 2L), 4L));
+        assertTrue(ex.getMessage().contains("封存"));
+        assertTrue(ex.getMessage().contains("SP-2024-0001"));
+        assertTrue(ex.getMessage().contains("抽检不合格，待复测"));
+        assertTrue(ex.getMessage().contains("2026-09-20"));
+        // 未封存的弹簧不出现在拦截原因中
+        assertFalse(ex.getMessage().contains("SP-2024-0002"));
     }
 
     private ProductionLine line(Long id, String code, String name, int threshold, String min, String max) {

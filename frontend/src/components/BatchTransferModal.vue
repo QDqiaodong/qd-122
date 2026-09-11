@@ -34,8 +34,13 @@ const availableTargetLines = computed(() => {
 })
 
 const validSprings = computed(() => {
-  if (!toLineId.value) return props.selectedSprings
-  return props.selectedSprings.filter((s) => s.currentLineId !== toLineId.value)
+  if (!toLineId.value) return props.selectedSprings.filter((s) => s.sealStatus !== 'SEALED')
+  return props.selectedSprings.filter((s) => s.currentLineId !== toLineId.value && s.sealStatus !== 'SEALED')
+})
+
+/** 封存中的弹簧不能进入划转申请（列表页已禁选，此处兜底拦截并提示） */
+const sealedSprings = computed(() => {
+  return props.selectedSprings.filter((s) => s.sealStatus === 'SEALED')
 })
 
 const invalidSprings = computed(() => {
@@ -73,7 +78,12 @@ async function handleSubmit() {
     emit('success', response.data)
     handleClose()
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '申请提交失败')
+    // 后端拦截（如弹簧封存中）时给出明确原因，延长展示便于阅读
+    ElMessage.error({
+      message: err instanceof Error ? err.message : '申请提交失败',
+      duration: 6000,
+      showClose: true,
+    })
   } finally {
     submitting.value = false
   }
@@ -196,6 +206,10 @@ watch(
                   <span>同产线跳过：</span>
                   <span class="font-mono text-industrial-400">{{ invalidSprings.length }}</span>
                 </div>
+                <div v-if="sealedSprings.length > 0" class="flex justify-between">
+                  <span>封存拦截：</span>
+                  <span class="font-mono text-red-500">{{ sealedSprings.length }}</span>
+                </div>
                 <div class="flex justify-between pt-2 border-t border-industrial-200 mt-2">
                   <span class="font-medium">目标产线：</span>
                   <span class="font-medium text-accent-600">
@@ -230,7 +244,7 @@ watch(
               </tr>
             </thead>
             <tbody>
-              <tr v-for="spring in selectedSprings" :key="spring.id" :class="{ 'opacity-50': spring.currentLineId === toLineId }">
+              <tr v-for="spring in selectedSprings" :key="spring.id" :class="{ 'opacity-50': spring.currentLineId === toLineId || spring.sealStatus === 'SEALED' }">
                 <td class="py-2 font-mono text-xs">{{ spring.springCode }}</td>
                 <td class="py-2">{{ spring.model }}</td>
                 <td class="py-2 font-mono text-xs">{{ spring.elasticCoefficient }} N/mm</td>
@@ -243,7 +257,10 @@ watch(
                   <ArrowRight class="w-4 h-4 mx-auto text-industrial-400" />
                 </td>
                 <td class="py-2">
-                  <span v-if="toLineId && spring.currentLineId !== toLineId" class="px-2 py-0.5 bg-accent-100 text-accent-700 rounded text-xs">
+                  <span v-if="spring.sealStatus === 'SEALED'" class="text-red-500 text-xs">
+                    封存中，不可划转
+                  </span>
+                  <span v-else-if="toLineId && spring.currentLineId !== toLineId" class="px-2 py-0.5 bg-accent-100 text-accent-700 rounded text-xs">
                     {{ lineStore.getLineName(toLineId) }}
                   </span>
                   <span v-else-if="spring.currentLineId === toLineId" class="text-industrial-400 text-xs">

@@ -121,6 +121,14 @@ public class TransferApplicationService {
             throw new RuntimeException("以下弹簧已存在待审批的划转申请，请勿重复提交: " + codes);
         }
 
+        // 封存校验：封存中的弹簧（抽检不合格/待复测）不能进入划转申请，提示中给出封存原因与预计解封日
+        List<SpringArchive> sealedSprings = springs.stream().filter(SpringArchive::isSealed).toList();
+        if (!sealedSprings.isEmpty()) {
+            String details = sealedSprings.stream().map(SpringArchive::getSealSummary)
+                    .collect(Collectors.joining("；"));
+            throw new RuntimeException("以下弹簧处于封存状态，封存期间不能进入划转申请，请先解封: " + details);
+        }
+
         Map<Long, ProductionLine> lineCache = productionLineRepository.findAll().stream()
                 .collect(Collectors.toMap(ProductionLine::getId, Function.identity()));
 
@@ -257,6 +265,11 @@ public class TransferApplicationService {
         if (spring.getCurrentLineId().equals(item.getToLineId())) {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "弹簧当前已归属目标产线「" + item.getToLineName() + "」，无需划转，请驳回该申请");
+        }
+        // 申请提交后弹簧被封存的，审批同样拦截，封存期间不允许归属变更
+        if (spring.isSealed()) {
+            return ItemProcessResult.fail(itemId, item.getSpringCode(),
+                    "弹簧处于封存状态（" + spring.getSealSummary() + "），封存期间不能划转，请先解封");
         }
 
         // 原子状态流转（双保险），防止并发审批重复生效

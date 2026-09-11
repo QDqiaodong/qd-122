@@ -74,6 +74,9 @@ const selectedSprings = computed(() => {
   return springs.value.filter((s) => selectedIds.value.includes(s.id))
 })
 
+/** 封存中的弹簧（抽检不合格/待复测）不能进入调拨模拟 */
+const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
+
 const availableTargetLines = computed(() => {
   if (selectedSprings.value.length === 0) return lineStore.lines
   const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
@@ -128,14 +131,19 @@ function handleReset() {
 }
 
 function handleSelectAll() {
-  if (selectedIds.value.length === springs.value.length) {
+  if (selectedIds.value.length === selectableSprings.value.length) {
     selectedIds.value = []
   } else {
-    selectedIds.value = springs.value.map((s) => s.id)
+    selectedIds.value = selectableSprings.value.map((s) => s.id)
   }
 }
 
 function toggleSelect(id: number) {
+  const spring = springs.value.find((s) => s.id === id)
+  if (spring?.sealStatus === 'SEALED') {
+    ElMessage.warning(`弹簧 ${spring.springCode} 处于封存状态，封存期间不能进入调拨模拟`)
+    return
+  }
   const index = selectedIds.value.indexOf(id)
   if (index > -1) {
     selectedIds.value.splice(index, 1)
@@ -166,7 +174,7 @@ async function handlePreview() {
     })
     estimate.value = response.data
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '负载预估失败')
+    showBlockError(err, '负载预估失败')
   } finally {
     estimating.value = false
   }
@@ -190,10 +198,19 @@ async function handleSave() {
     planPage.value = 0
     fetchPlans()
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '方案保存失败')
+    showBlockError(err, '方案保存失败')
   } finally {
     saving.value = false
   }
+}
+
+/** 后端拦截（如弹簧封存中）时给出明确原因，延长展示便于阅读 */
+function showBlockError(err: unknown, fallback: string) {
+  ElMessage.error({
+    message: err instanceof Error ? err.message : fallback,
+    duration: 6000,
+    showClose: true,
+  })
 }
 
 async function handleDetail(sim: TransferSimulation) {
@@ -238,7 +255,7 @@ async function confirmAdopt() {
     )
     fetchPlans()
   } catch (err) {
-    ElMessage.error(err instanceof Error ? err.message : '方案采用失败')
+    showBlockError(err, '方案采用失败')
   } finally {
     adopting.value = false
   }
@@ -342,7 +359,7 @@ onMounted(async () => {
                 <th class="w-12 py-2">
                   <input
                     type="checkbox"
-                    :checked="selectedIds.length === springs.length && springs.length > 0"
+                    :checked="selectedIds.length === selectableSprings.length && selectableSprings.length > 0"
                     @change="handleSelectAll"
                     class="w-4 h-4"
                   />
@@ -357,20 +374,31 @@ onMounted(async () => {
               <tr
                 v-for="spring in springs"
                 :key="spring.id"
-                class="cursor-pointer transition-colors"
-                :class="{ 'bg-primary-50': selectedIds.includes(spring.id) }"
+                class="transition-colors"
+                :class="[
+                  spring.sealStatus === 'SEALED' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+                  { 'bg-primary-50': selectedIds.includes(spring.id) },
+                ]"
                 @click="toggleSelect(spring.id)"
               >
                 <td class="py-2" @click.stop>
                   <input
                     type="checkbox"
                     :checked="selectedIds.includes(spring.id)"
+                    :disabled="spring.sealStatus === 'SEALED'"
                     @change="toggleSelect(spring.id)"
-                    class="w-4 h-4"
+                    class="w-4 h-4 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
                 </td>
                 <td class="py-2 font-mono text-xs font-medium text-primary-800">
                   {{ spring.springCode }}
+                  <span
+                    v-if="spring.sealStatus === 'SEALED'"
+                    class="ml-1 px-1.5 py-0.5 bg-red-100 text-red-700 rounded text-xs font-medium cursor-help"
+                    :title="`封存原因：${spring.sealReason || '未登记'}${spring.sealExpectedUnsealDate ? '，预计解封日：' + spring.sealExpectedUnsealDate : ''}`"
+                  >
+                    封存中
+                  </span>
                 </td>
                 <td class="py-2">{{ spring.model }}</td>
                 <td class="py-2 font-mono text-xs">{{ spring.elasticCoefficient }} N/mm</td>

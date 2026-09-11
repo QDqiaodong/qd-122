@@ -3,7 +3,7 @@ package com.spring.transfer.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spring.transfer.common.AlertStatus;
-import com.spring.transfer.common.LoadStatus;
+import com.spring.transfer.dto.LoadStatus;
 import com.spring.transfer.dto.AlertDispositionRequest;
 import com.spring.transfer.dto.LineLoadStats;
 import com.spring.transfer.dto.LoadAlertEventResponse;
@@ -106,7 +106,7 @@ public class LoadAlertService {
             LoadAlertEvent latest = eventRepository
                     .findFirstByLineIdOrderByTriggerTimeDescIdDesc(lineId).orElse(null);
             if (latest != null && latest.getStatus() == AlertStatus.RESOLVED
-                    && Boolean.TRUE.equals(latest.getManualCloseActive())) {
+                    && latest.isManualCloseActive()) {
                 return;
             }
             createEvent(stats);
@@ -116,7 +116,7 @@ public class LoadAlertService {
                 // 负载恢复正常，清除手动关闭抑制标记，为下一轮告警放行
                 LoadAlertEvent latest = eventRepository
                         .findFirstByLineIdOrderByTriggerTimeDescIdDesc(lineId).orElse(null);
-                if (latest != null && Boolean.TRUE.equals(latest.getManualCloseActive())) {
+                if (latest != null && latest.isManualCloseActive()) {
                     clearManualSuppress(latest.getId());
                 }
             }
