@@ -14,6 +14,12 @@ import type {
   LineLoadBoard,
   LineLoadDetail,
   LineThresholdUpdateRequest,
+  SimulationStatus,
+  SimulationEstimate,
+  SimulationDetail,
+  TransferSimulation,
+  SaveSimulationRequest,
+  AdoptSimulationRequest,
 } from '@/types'
 
 const request = axios.create({
@@ -80,4 +86,19 @@ export const lineLoadApi = {
     request.get<unknown, ApiResponse<LineLoadDetail>>(`/line-load/lines/${lineId}`),
   updateThreshold: (lineId: number, data: LineThresholdUpdateRequest) =>
     request.put<unknown, ApiResponse<ProductionLine>>(`/line-load/lines/${lineId}/threshold`, data),
+}
+
+export const simulationApi = {
+  preview: (data: { springIds: number[]; toLineId: number }) =>
+    request.post<unknown, ApiResponse<SimulationEstimate>>('/simulations/preview', data),
+  save: (data: SaveSimulationRequest) =>
+    request.post<unknown, ApiResponse<TransferSimulation>>('/simulations', data),
+  list: (params?: { status?: SimulationStatus; keyword?: string; page?: number; size?: number }) =>
+    request.get<unknown, ApiResponse<PageResponse<TransferSimulation>>>('/simulations', { params }),
+  detail: (id: number) =>
+    request.get<unknown, ApiResponse<SimulationDetail>>(`/simulations/${id}`),
+  adopt: (id: number, data: AdoptSimulationRequest) =>
+    request.post<unknown, ApiResponse<TransferSimulation>>(`/simulations/${id}/adopt`, data),
+  discard: (id: number) =>
+    request.post<unknown, ApiResponse<TransferSimulation>>(`/simulations/${id}/discard`),
 }

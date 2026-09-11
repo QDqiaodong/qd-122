@@ -147,6 +147,79 @@ export interface SubmitApplicationRequest {
   reason: string
 }
 
+export type SimulationStatus = 'DRAFT' | 'ADOPTED' | 'DISCARDED'
+
+export interface LineSimulationEstimate {
+  lineId: number
+  lineCode: string
+  lineName: string
+  direction: 'IN' | 'OUT'
+  moveInCount: number
+  moveOutCount: number
+  currentCount: number
+  simulatedCount: number
+  dailyCapacityThreshold?: number | null
+  currentLoadRate?: number | null
+  simulatedLoadRate?: number | null
+  currentOutOfRangeCount: number
+  simulatedOutOfRangeCount: number
+  currentStatus: LineLoadStatus
+  simulatedStatus: LineLoadStatus
+  reasons: string[]
+}
+
+export interface SimulationEstimate {
+  toLineId: number
+  toLineName: string
+  springCount: number
+  lines: LineSimulationEstimate[]
+}
+
+export interface TransferSimulation {
+  id: number
+  simulationNo: string
+  operator: string
+  toLineId: number
+  toLineName: string
+  remark?: string
+  status: SimulationStatus
+  applicationId?: number
+  applicationNo?: string
+  applicationStatus?: ApplicationStatus
+  itemCount?: number
+  createTime: string
+  updateTime: string
+}
+
+export interface TransferSimulationItem {
+  id: number
+  simulationId: number
+  springId: number
+  springCode: string
+  model: string
+  elasticCoefficient: number
+  fromLineId: number
+  fromLineName: string
+}
+
+export interface SimulationDetail {
+  simulation: TransferSimulation
+  items: TransferSimulationItem[]
+  estimate: SimulationEstimate | null
+}
+
+export interface SaveSimulationRequest {
+  springIds: number[]
+  toLineId: number
+  operator: string
+  remark?: string
+}
+
+export interface AdoptSimulationRequest {
+  applicant: string
+  reason?: string
+}
+
 export interface ApprovalRequest {
   itemIds: number[]
   approver: string

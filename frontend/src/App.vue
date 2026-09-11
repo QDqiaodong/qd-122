@@ -6,6 +6,7 @@ import {
   Gauge,
   Cog,
   GitBranch,
+  FlaskConical,
   ClipboardCheck,
   History,
   Menu,
@@ -22,6 +23,7 @@ const navItems = [
   { path: '/', name: '产线负载预警', icon: Gauge },
   { path: '/springs', name: '弹簧档案管理', icon: Cog },
   { path: '/transfer', name: '产线划转申请', icon: GitBranch },
+  { path: '/simulation', name: '工序调拨模拟', icon: FlaskConical },
   { path: '/approval', name: '划转申请审批', icon: ClipboardCheck },
   { path: '/trace', name: '划转轨迹查询', icon: History },
 ]

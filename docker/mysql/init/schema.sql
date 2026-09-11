@@ -108,6 +108,40 @@ CREATE TABLE IF NOT EXISTS transfer_application_log (
     FOREIGN KEY (application_id) REFERENCES transfer_application(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转申请操作记录表';
 
+CREATE TABLE IF NOT EXISTS transfer_simulation (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    simulation_no VARCHAR(32) NOT NULL UNIQUE COMMENT '模拟方案编号',
+    operator VARCHAR(32) NOT NULL COMMENT '调度员',
+    to_line_id BIGINT NOT NULL COMMENT '拟接收产线ID',
+    to_line_name VARCHAR(64) NOT NULL COMMENT '拟接收产线名称',
+    remark VARCHAR(255) COMMENT '方案备注',
+    status VARCHAR(16) NOT NULL DEFAULT 'DRAFT' COMMENT '方案状态：DRAFT-已保存 ADOPTED-已采用 DISCARDED-已作废',
+    estimate_snapshot TEXT COMMENT '保存时的负载预估快照（JSON）',
+    application_id BIGINT COMMENT '采用后生成的划转申请单ID',
+    application_no VARCHAR(32) COMMENT '采用后生成的划转申请单号',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_status (status),
+    INDEX idx_create_time (create_time),
+    FOREIGN KEY (to_line_id) REFERENCES production_line(id),
+    FOREIGN KEY (application_id) REFERENCES transfer_application(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序调拨模拟方案表';
+
+CREATE TABLE IF NOT EXISTS transfer_simulation_item (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    simulation_id BIGINT NOT NULL COMMENT '模拟方案ID',
+    spring_id BIGINT NOT NULL COMMENT '弹簧ID',
+    spring_code VARCHAR(32) NOT NULL COMMENT '弹簧编号',
+    model VARCHAR(64) NOT NULL COMMENT '弹簧型号',
+    elastic_coefficient DECIMAL(10,4) NOT NULL COMMENT '弹力系数 N/mm',
+    from_line_id BIGINT NOT NULL COMMENT '模拟时所在产线ID',
+    from_line_name VARCHAR(64) NOT NULL COMMENT '模拟时所在产线名称',
+    INDEX idx_simulation_id (simulation_id),
+    FOREIGN KEY (simulation_id) REFERENCES transfer_simulation(id),
+    FOREIGN KEY (spring_id) REFERENCES spring_archive(id),
+    FOREIGN KEY (from_line_id) REFERENCES production_line(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序调拨模拟方案明细表';
+
 INSERT IGNORE INTO production_line
     (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max) VALUES
 ('LINE-001', '装配一号线', '精密小型件装配线', 2, 0.2000, 1.0000),

@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import LoadDashboard from '@/pages/LoadDashboard.vue'
 import SpringArchive from '@/pages/SpringArchive.vue'
 import TransferOperation from '@/pages/TransferOperation.vue'
+import TransferSimulation from '@/pages/TransferSimulation.vue'
 import TransferApproval from '@/pages/TransferApproval.vue'
 import TraceQuery from '@/pages/TraceQuery.vue'
 
@@ -23,6 +24,12 @@ const routes = [
     name: 'TransferOperation',
     component: TransferOperation,
     meta: { title: '产线划转申请' },
+  },
+  {
+    path: '/simulation',
+    name: 'TransferSimulation',
+    component: TransferSimulation,
+    meta: { title: '工序调拨模拟' },
   },
   {
     path: '/approval',

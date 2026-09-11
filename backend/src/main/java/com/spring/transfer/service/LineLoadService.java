@@ -3,8 +3,10 @@ package com.spring.transfer.service;
 import com.spring.transfer.dto.LineLoadBoardResponse;
 import com.spring.transfer.dto.LineLoadDetailResponse;
 import com.spring.transfer.dto.LineLoadStats;
+import com.spring.transfer.dto.LineSimulationEstimate;
 import com.spring.transfer.dto.LineThresholdUpdateRequest;
 import com.spring.transfer.dto.LoadStatus;
+import com.spring.transfer.dto.SimulationEstimateResponse;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
 import com.spring.transfer.entity.TransferRecord;
@@ -21,9 +23,12 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -97,6 +102,107 @@ public class LineLoadService {
         detail.setSprings(springs);
         detail.setRecentTransfers(transferRecordRepository.findRecentByLineId(lineId, after));
         return Optional.of(detail);
+    }
+
+    /**
+     * 工序调拨模拟：预估所选弹簧划至拟接收产线后，各受影响产线（接收产线 + 各划出产线）
+     * 的承载率、弹力系数越界数量与预警原因。
+     *
+     * 数量与系数维度按模拟后的归属重新计算；划转趋势维度沿用近 7 天实际流水
+     * （模拟不改变历史数据）。计算口径与负载预警看板完全一致，保证模拟结果可信。
+     */
+    public SimulationEstimateResponse simulateTransfer(List<Long> springIds, Long toLineId) {
+        ProductionLine toLine = productionLineRepository.findById(toLineId)
+                .orElseThrow(() -> new RuntimeException("拟接收产线不存在"));
+
+        List<Long> distinctIds = springIds.stream().distinct().toList();
+        List<SpringArchive> allSprings = springArchiveRepository.findAll();
+        Map<Long, SpringArchive> springMap = allSprings.stream()
+                .collect(Collectors.toMap(SpringArchive::getId, Function.identity()));
+        List<Long> missing = distinctIds.stream().filter(id -> !springMap.containsKey(id)).toList();
+        if (!missing.isEmpty()) {
+            throw new RuntimeException("以下弹簧档案不存在，ID: " + missing);
+        }
+        List<SpringArchive> selected = distinctIds.stream().map(springMap::get).toList();
+
+        // 同产线校验：已归属拟接收产线的弹簧无需划转
+        List<String> sameLineCodes = selected.stream()
+                .filter(s -> s.getCurrentLineId().equals(toLineId))
+                .map(SpringArchive::getSpringCode)
+                .toList();
+        if (!sameLineCodes.isEmpty()) {
+            throw new RuntimeException("以下弹簧已归属拟接收产线「" + toLine.getLineName() + "」，无需划转: "
+                    + String.join(", ", sameLineCodes));
+        }
+
+        Map<Long, List<SpringArchive>> springsByLine = allSprings.stream()
+                .collect(Collectors.groupingBy(SpringArchive::getCurrentLineId));
+        Map<Long, List<SpringArchive>> movedOutByLine = selected.stream()
+                .collect(Collectors.groupingBy(SpringArchive::getCurrentLineId));
+
+        LocalDateTime after = LocalDateTime.now().minusDays(TREND_DAYS);
+        TrendAggregation trend = aggregateTrend(transferRecordRepository.findByOperateTimeAfter(after));
+
+        Map<Long, ProductionLine> lineMap = productionLineRepository.findAll().stream()
+                .collect(Collectors.toMap(ProductionLine::getId, Function.identity()));
+
+        // 受影响产线：拟接收产线排最前，其余划出产线按ID升序
+        Set<Long> affectedLineIds = new LinkedHashSet<>();
+        affectedLineIds.add(toLineId);
+        movedOutByLine.keySet().stream().sorted().forEach(affectedLineIds::add);
+
+        List<LineSimulationEstimate> lines = new ArrayList<>();
+        for (Long lineId : affectedLineIds) {
+            ProductionLine line = lineMap.get(lineId);
+            if (line == null) {
+                throw new RuntimeException("产线不存在，ID: " + lineId);
+            }
+            boolean isTarget = lineId.equals(toLineId);
+            List<SpringArchive> current = springsByLine.getOrDefault(lineId, List.of());
+            List<SpringArchive> movedOut = movedOutByLine.getOrDefault(lineId, List.of());
+
+            // 模拟后归属：划出产线移除划出弹簧，接收产线追加全部选中弹簧
+            Set<Long> movedOutIds = movedOut.stream().map(SpringArchive::getId).collect(Collectors.toSet());
+            List<SpringArchive> simulated = current.stream()
+                    .filter(s -> !movedOutIds.contains(s.getId()))
+                    .collect(Collectors.toCollection(ArrayList::new));
+            if (isTarget) {
+                simulated.addAll(selected);
+            }
+
+            int recentIn = trend.inCount.getOrDefault(lineId, 0);
+            int recentOut = trend.outCount.getOrDefault(lineId, 0);
+            LineLoadStats currentStats = buildStats(line, current.size(),
+                    countOutOfRange(line, current), recentIn, recentOut);
+            LineLoadStats simulatedStats = buildStats(line, simulated.size(),
+                    countOutOfRange(line, simulated), recentIn, recentOut);
+
+            LineSimulationEstimate estimate = new LineSimulationEstimate();
+            estimate.setLineId(line.getId());
+            estimate.setLineCode(line.getLineCode());
+            estimate.setLineName(line.getLineName());
+            estimate.setDirection(isTarget ? "IN" : "OUT");
+            estimate.setMoveInCount(isTarget ? selected.size() : 0);
+            estimate.setMoveOutCount(movedOut.size());
+            estimate.setCurrentCount(currentStats.getSpringCount());
+            estimate.setSimulatedCount(simulatedStats.getSpringCount());
+            estimate.setDailyCapacityThreshold(line.getDailyCapacityThreshold());
+            estimate.setCurrentLoadRate(currentStats.getLoadRate());
+            estimate.setSimulatedLoadRate(simulatedStats.getLoadRate());
+            estimate.setCurrentOutOfRangeCount(currentStats.getOutOfRangeCount());
+            estimate.setSimulatedOutOfRangeCount(simulatedStats.getOutOfRangeCount());
+            estimate.setCurrentStatus(currentStats.getStatus());
+            estimate.setSimulatedStatus(simulatedStats.getStatus());
+            estimate.setReasons(simulatedStats.getReasons());
+            lines.add(estimate);
+        }
+
+        SimulationEstimateResponse response = new SimulationEstimateResponse();
+        response.setToLineId(toLine.getId());
+        response.setToLineName(toLine.getLineName());
+        response.setSpringCount(selected.size());
+        response.setLines(lines);
+        return response;
     }
 
     @Transactional
