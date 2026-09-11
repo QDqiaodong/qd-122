@@ -35,6 +35,10 @@ export interface LineLoadStats {
   recentOutCount: number
   recentNetIn: number
   reasons: string[]
+  /** 当前未关闭告警事件ID，无则 null */
+  openAlertEventId?: number | null
+  /** 未关闭告警事件处置状态：PENDING / PROCESSING */
+  openAlertStatus?: AlertHandleStatus | null
 }
 
 export interface LineLoadBoard {
@@ -43,16 +47,75 @@ export interface LineLoadBoard {
   normalCount: number
   warningCount: number
   overloadCount: number
+  /** 待处理（未确认责任人）的告警事件数 */
+  pendingAlertCount: number
+  /** 未关闭（待处理 + 处置中）的告警事件数 */
+  openAlertCount: number
   lines: LineLoadStats[]
   normalLines: LineLoadStats[]
   warningLines: LineLoadStats[]
   overloadLines: LineLoadStats[]
 }
 
+/** 告警处置状态：待处理 / 处置中 / 已关闭 */
+export type AlertHandleStatus = 'PENDING' | 'PROCESSING' | 'RESOLVED'
+
+/** 告警事件处置记录 */
+export interface AlertHandleLog {
+  id: number
+  action: 'CONFIRM' | 'PLAN' | 'REMARK' | 'RESOLVE' | 'AUTO_RESOLVE'
+  operator: string
+  operateTime: string
+  resultStatus: AlertHandleStatus
+  detail?: string
+}
+
+/** 负载告警事件（含触发快照与处置记录） */
+export interface LoadAlertEvent {
+  id: number
+  eventNo: string
+  lineId: number
+  lineCode: string
+  lineName: string
+  /** 触发时级别：WARNING / OVERLOAD */
+  alertLevel: LineLoadStatus
+  /** 触发时负载快照 */
+  snapshot?: LineLoadStats | null
+  status: AlertHandleStatus
+  responsiblePerson?: string | null
+  handlePlan?: string | null
+  remark?: string | null
+  /** 关闭方式：MANUAL-手动 / AUTO-系统自动 */
+  closeType?: 'MANUAL' | 'AUTO' | null
+  closeRemark?: string | null
+  closedBy?: string | null
+  triggerTime: string
+  confirmTime?: string | null
+  closeTime?: string | null
+  createTime: string
+  updateTime: string
+  /** 产线当前实时负载状态 */
+  currentLineStatus?: LineLoadStatus | null
+  logs: AlertHandleLog[]
+}
+
 export interface LineLoadDetail {
   stats: LineLoadStats
   springs: SpringArchive[]
   recentTransfers: TransferRecord[]
+  /** 当前未关闭告警事件（无则 null） */
+  openAlertEvent?: LoadAlertEvent | null
+  /** 该产线全部历史告警事件（按触发时间倒序） */
+  alertEvents?: LoadAlertEvent[]
+}
+
+export interface AlertDispositionRequest {
+  /** CONFIRM-确认责任人与处置计划 / RESOLVE-处理完成关闭 */
+  action: 'CONFIRM' | 'RESOLVE'
+  operator: string
+  responsiblePerson?: string
+  handlePlan?: string
+  remark?: string
 }
 
 export interface LineThresholdUpdateRequest {

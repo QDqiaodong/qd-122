@@ -35,6 +35,8 @@ class LineLoadServiceSimulationTest {
     private SpringArchiveRepository springArchiveRepository;
     @Mock
     private TransferRecordRepository transferRecordRepository;
+    @Mock
+    private LoadAlertService loadAlertService;
 
     private LineLoadService lineLoadService;
 
@@ -43,7 +45,8 @@ class LineLoadServiceSimulationTest {
 
     @BeforeEach
     void setUp() {
-        lineLoadService = new LineLoadService(productionLineRepository, springArchiveRepository, transferRecordRepository);
+        lineLoadService = new LineLoadService(productionLineRepository, springArchiveRepository,
+                transferRecordRepository, loadAlertService);
 
         lines = List.of(
                 line(1L, "LINE-001", "装配一号线", 2, "0.2", "1.0"),

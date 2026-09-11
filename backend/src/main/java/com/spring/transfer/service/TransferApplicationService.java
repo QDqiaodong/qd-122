@@ -18,8 +18,8 @@ import com.spring.transfer.repository.TransferApplicationItemRepository;
 import com.spring.transfer.repository.TransferApplicationLogRepository;
 import com.spring.transfer.repository.TransferApplicationRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -40,7 +40,6 @@ import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class TransferApplicationService {
     private final TransferApplicationRepository applicationRepository;
     private final TransferApplicationItemRepository itemRepository;
@@ -49,6 +48,28 @@ public class TransferApplicationService {
     private final ProductionLineRepository productionLineRepository;
     private final TransferRecordRepository transferRecordRepository;
     private final PlatformTransactionManager transactionManager;
+    private final LineLoadService lineLoadService;
+    private final LoadAlertService loadAlertService;
+
+    public TransferApplicationService(TransferApplicationRepository applicationRepository,
+                                      TransferApplicationItemRepository itemRepository,
+                                      TransferApplicationLogRepository logRepository,
+                                      SpringArchiveRepository springArchiveRepository,
+                                      ProductionLineRepository productionLineRepository,
+                                      TransferRecordRepository transferRecordRepository,
+                                      PlatformTransactionManager transactionManager,
+                                      @Lazy LineLoadService lineLoadService,
+                                      @Lazy LoadAlertService loadAlertService) {
+        this.applicationRepository = applicationRepository;
+        this.itemRepository = itemRepository;
+        this.logRepository = logRepository;
+        this.springArchiveRepository = springArchiveRepository;
+        this.productionLineRepository = productionLineRepository;
+        this.transferRecordRepository = transferRecordRepository;
+        this.transactionManager = transactionManager;
+        this.lineLoadService = lineLoadService;
+        this.loadAlertService = loadAlertService;
+    }
 
     public Page<TransferApplication> findAll(ApplicationStatus status, String keyword, Pageable pageable) {
         Page<TransferApplication> page = applicationRepository.findByCondition(status, keyword, pageable);
@@ -271,8 +292,27 @@ public class TransferApplicationService {
                         + "，已生成划转流水 #" + record.getId()));
 
         refreshApplicationStatus(item.getApplicationId());
+
+        // 划转可能导致划入方预警/超载、划出方恢复正常：按双方最新负载同步告警事件
+        syncAlertsAfterTransfer(fromLine.getId(), item.getToLineId());
+
         return ItemProcessResult.success(itemId, item.getSpringCode(),
                 "审批通过，弹簧已划转至「" + item.getToLineName() + "」");
+    }
+
+    /**
+     * 划转落地后同步划出/划入产线的负载告警事件。
+     * 在审批明细事务提交后由独立事务执行，事件同步失败不影响已生效的划转。
+     */
+    private void syncAlertsAfterTransfer(Long... lineIds) {
+        try {
+            for (Long lineId : lineIds) {
+                lineLoadService.getLineStats(lineId)
+                        .ifPresent(stats -> loadAlertService.syncEvents(List.of(stats)));
+            }
+        } catch (Exception e) {
+            log.error("划转后告警事件同步失败，看板刷新时会补偿同步", e);
+        }
     }
 
     /**

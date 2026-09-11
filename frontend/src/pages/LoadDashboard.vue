@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { lineLoadApi } from '@/api'
-import type { LineLoadBoard, LineLoadStats, LineLoadDetail, SpringArchive, TransferRecord } from '@/types'
+import { lineLoadApi, loadAlertApi } from '@/api'
+import type {
+  LineLoadBoard,
+  LineLoadStats,
+  LineLoadDetail,
+  SpringArchive,
+  TransferRecord,
+  LoadAlertEvent,
+  AlertHandleStatus,
+} from '@/types'
 import LineThresholdModal from '@/components/LineThresholdModal.vue'
+import AlertDispositionModal from '@/components/AlertDispositionModal.vue'
 import {
   Gauge,
   RefreshCw,
@@ -19,6 +28,11 @@ import {
   Settings2,
   X,
   History,
+  Siren,
+  UserRound,
+  ClipboardCheck,
+  CircleDot,
+  ListChecks,
 } from 'lucide-vue-next'
 
 const loading = ref(false)
@@ -31,19 +45,39 @@ const selectedLine = ref<LineLoadStats | null>(null)
 
 const thresholdVisible = ref(false)
 
+// 告警处置弹窗
+const dispositionVisible = ref(false)
+const dispositionMode = ref<'confirm' | 'resolve'>('confirm')
+const activeEvent = ref<LoadAlertEvent | null>(null)
+
+// 抽屉内历史事件按处置状态筛选
+const historyStatusFilter = ref<AlertHandleStatus | 'ALL'>('ALL')
+
 const totalLines = computed(() => board.value?.totalLines ?? 0)
 const totalSprings = computed(() => board.value?.totalSprings ?? 0)
+const pendingAlertCount = computed(() => board.value?.pendingAlertCount ?? 0)
+const openAlertCount = computed(() => board.value?.openAlertCount ?? 0)
 
 // 抽屉内状态：明细加载后以最新计算结果为准，加载中回退到看板卡片状态
 const drawerStatus = computed<LineLoadStats['status']>(
   () => detail.value?.stats.status ?? selectedLine.value?.status ?? 'NORMAL'
 )
 
+// 抽屉内未关闭告警事件（明细数据为准，加载前回退到看板列表里的轻量标记）
+const openEvent = computed<LoadAlertEvent | null>(() => detail.value?.openAlertEvent ?? null)
+
+// 历史事件（按状态筛选）
+const filteredHistory = computed<LoadAlertEvent[]>(() => {
+  const events = detail.value?.alertEvents ?? []
+  if (historyStatusFilter.value === 'ALL') return events
+  return events.filter((e) => e.status === historyStatusFilter.value)
+})
+
 async function fetchBoard() {
   loading.value = true
   try {
     const response = await lineLoadApi.board()
-    // 统计数字与下方分组来自后端同一份响应，保证刷新后一致
+    // 统计数字、分组、告警事件标记与下方列表来自后端同一份响应，保证刷新后一致
     board.value = response.data
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '看板加载失败')
@@ -57,13 +91,59 @@ async function openDetail(line: LineLoadStats) {
   detailVisible.value = true
   detailLoading.value = true
   detail.value = null
+  historyStatusFilter.value = 'ALL'
+  await reloadDetail()
+}
+
+async function reloadDetail() {
+  if (!selectedLine.value) return
+  const lineId = selectedLine.value.lineId
+  detailLoading.value = true
   try {
-    const response = await lineLoadApi.detail(line.lineId)
+    const response = await lineLoadApi.detail(lineId)
     detail.value = response.data
+    // 同步看板卡片上的告警标记（处置/关闭后顶部统计也一并刷新）
+    void fetchBoard()
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : '明细加载失败')
   } finally {
     detailLoading.value = false
+  }
+}
+
+/** 从看板卡片直接打开处置弹窗：先拉取事件详情拿到快照与处置记录 */
+async function openDispositionFromCard(line: LineLoadStats, mode: 'confirm' | 'resolve') {
+  if (!line.openAlertEventId) {
+    // 无本地标记时先打开明细兜底
+    await openDetail(line)
+    if (!openEvent.value) {
+      ElMessage.info('该产线当前没有未关闭的告警事件')
+      return
+    }
+    openDisposition(openEvent.value, mode)
+    return
+  }
+  try {
+    const response = await loadAlertApi.detail(line.openAlertEventId)
+    openDisposition(response.data, mode)
+  } catch (err) {
+    ElMessage.error(err instanceof Error ? err.message : '告警事件加载失败')
+  }
+}
+
+function openDisposition(event: LoadAlertEvent, mode: 'confirm' | 'resolve') {
+  activeEvent.value = event
+  dispositionMode.value = mode
+  dispositionVisible.value = true
+}
+
+/** 处置成功后：抽屉开着就刷新明细，同时刷新看板统计与卡片标记 */
+async function handleDispositionSaved() {
+  dispositionVisible.value = false
+  if (detailVisible.value && selectedLine.value) {
+    await reloadDetail()
+  } else {
+    await fetchBoard()
   }
 }
 
@@ -80,7 +160,7 @@ async function handleThresholdSaved() {
     const refreshed = board.value?.lines.find((l) => l.lineId === lineId)
     if (refreshed) {
       selectedLine.value = refreshed
-      openDetail(refreshed)
+      await reloadDetail()
     }
   }
 }
@@ -92,7 +172,7 @@ function isOutOfRange(spring: SpringArchive, line: LineLoadStats): boolean {
   return below || above
 }
 
-function formatTime(time?: string) {
+function formatTime(time?: string | null) {
   if (!time) return '-'
   return time.replace('T', ' ').substring(0, 19)
 }
@@ -101,6 +181,23 @@ function trendDirection(record: TransferRecord, lineId: number) {
   if (record.toLineId === lineId) return 'in'
   if (record.fromLineId === lineId) return 'out'
   return 'other'
+}
+
+function alertStatusText(status?: AlertHandleStatus | null) {
+  if (status === 'PENDING') return '待处理'
+  if (status === 'PROCESSING') return '处置中'
+  if (status === 'RESOLVED') return '已关闭'
+  return ''
+}
+
+function handleActionText(action: string) {
+  return {
+    CONFIRM: '确认处置',
+    PLAN: '更新计划',
+    REMARK: '追加备注',
+    RESOLVE: '手动关闭',
+    AUTO_RESOLVE: '自动关闭',
+  }[action] ?? action
 }
 
 onMounted(fetchBoard)
@@ -120,7 +217,7 @@ onMounted(fetchBoard)
       </button>
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
       <div class="card-industrial p-4">
         <div class="flex items-center justify-between">
           <span class="text-sm text-industrial-500">产线总数</span>
@@ -161,6 +258,25 @@ onMounted(fetchBoard)
           {{ board?.overloadCount ?? '-' }}
         </div>
         <div class="text-xs text-industrial-400 mt-1">已超过日承载阈值</div>
+      </div>
+
+      <div
+        class="card-industrial p-4 border-l-4"
+        :class="pendingAlertCount > 0 ? 'border-l-red-600 bg-red-50/40' : 'border-l-industrial-300'"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-industrial-500">待处理事件</span>
+          <Siren class="w-5 h-5" :class="pendingAlertCount > 0 ? 'text-red-600' : 'text-industrial-300'" />
+        </div>
+        <div
+          class="text-3xl font-bold font-mono mt-2"
+          :class="pendingAlertCount > 0 ? 'text-red-600' : 'text-industrial-400'"
+        >
+          {{ pendingAlertCount }}
+        </div>
+        <div class="text-xs text-industrial-400 mt-1">
+          未确认责任人，未关闭共 {{ openAlertCount }} 起
+        </div>
       </div>
 
       <div class="card-industrial p-4 col-span-2 lg:col-span-1">
@@ -242,16 +358,41 @@ onMounted(fetchBoard)
           >
             <div class="flex items-start justify-between">
               <div>
-                <div class="font-mono text-xs text-industrial-400">{{ line.lineCode }}</div>
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-xs text-industrial-400">{{ line.lineCode }}</span>
+                  <span
+                    v-if="line.openAlertEventId"
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium"
+                    :class="line.openAlertStatus === 'PENDING'
+                      ? 'bg-red-100 text-red-700'
+                      : 'bg-accent-100 text-accent-700'"
+                  >
+                    <Siren class="w-3 h-3" />
+                    {{ alertStatusText(line.openAlertStatus) }}事件
+                  </span>
+                </div>
                 <div class="font-semibold text-industrial-800 mt-0.5">{{ line.lineName }}</div>
               </div>
-              <button
-                class="p-1.5 text-industrial-400 hover:text-primary-700 hover:bg-primary-50 rounded-industrial"
-                title="维护阈值"
-                @click.stop="openThreshold(line)"
-              >
-                <Settings2 class="w-4 h-4" />
-              </button>
+              <div class="flex items-center gap-1">
+                <button
+                  v-if="line.openAlertEventId"
+                  class="p-1.5 rounded-industrial"
+                  :class="line.openAlertStatus === 'PENDING'
+                    ? 'text-red-600 hover:bg-red-50'
+                    : 'text-accent-600 hover:bg-accent-50'"
+                  title="告警处置：确认责任人 / 更新计划 / 标记完成"
+                  @click.stop="openDispositionFromCard(line, 'confirm')"
+                >
+                  <ClipboardCheck class="w-4 h-4" />
+                </button>
+                <button
+                  class="p-1.5 text-industrial-400 hover:text-primary-700 hover:bg-primary-50 rounded-industrial"
+                  title="维护阈值"
+                  @click.stop="openThreshold(line)"
+                >
+                  <Settings2 class="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <!-- 负载率进度条 -->
@@ -347,6 +488,16 @@ onMounted(fetchBoard)
               >
                 {{ drawerStatus === 'OVERLOAD' ? '超载' : drawerStatus === 'WARNING' ? '预警' : '正常' }}
               </span>
+              <span
+                v-if="openEvent"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
+                :class="openEvent.status === 'PENDING'
+                  ? 'bg-red-100 text-red-700'
+                  : 'bg-accent-100 text-accent-700'"
+              >
+                <Siren class="w-3 h-3" />
+                {{ alertStatusText(openEvent.status) }}事件 {{ openEvent.eventNo }}
+              </span>
             </div>
             <p class="text-sm text-industrial-500 mt-1">{{ selectedLine.description || '暂无描述' }}</p>
           </div>
@@ -434,6 +585,175 @@ onMounted(fetchBoard)
               <div v-else class="flex items-center gap-2 text-sm text-green-600">
                 <CheckCircle2 class="w-4 h-4" />
                 暂无触发原因，该产线负载状态正常
+              </div>
+            </div>
+
+            <!-- 未关闭告警事件处置闭环 -->
+            <div
+              v-if="openEvent"
+              class="card-industrial p-4 border-2"
+              :class="openEvent.status === 'PENDING' ? 'border-red-300' : 'border-accent-300'"
+            >
+              <div class="flex items-center gap-2 mb-3">
+                <Siren
+                  class="w-4 h-4"
+                  :class="openEvent.status === 'PENDING' ? 'text-red-500' : 'text-accent-500'"
+                />
+                <h3 class="font-semibold text-industrial-800">未关闭告警事件</h3>
+                <span class="font-mono text-xs text-industrial-400">{{ openEvent.eventNo }}</span>
+                <span
+                  class="px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="openEvent.status === 'PENDING'
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-accent-100 text-accent-700'"
+                >
+                  {{ alertStatusText(openEvent.status) }}
+                </span>
+                <span class="ml-auto text-xs text-industrial-400 font-mono">
+                  触发 {{ formatTime(openEvent.triggerTime) }}
+                </span>
+              </div>
+
+              <!-- 责任人与处置计划 -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="flex items-center gap-1 text-xs text-industrial-500">
+                    <UserRound class="w-3.5 h-3.5" />责任人
+                  </div>
+                  <div class="mt-1 font-medium text-industrial-800">
+                    {{ openEvent.responsiblePerson || '待确认' }}
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="flex items-center gap-1 text-xs text-industrial-500">
+                    <ClipboardCheck class="w-3.5 h-3.5" />确认时间
+                  </div>
+                  <div class="mt-1 font-mono text-industrial-800">
+                    {{ formatTime(openEvent.confirmTime) }}
+                  </div>
+                </div>
+                <div class="md:col-span-2 bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">处置计划</div>
+                  <div class="mt-1 text-industrial-800">{{ openEvent.handlePlan || '待填写' }}</div>
+                </div>
+                <div v-if="openEvent.remark" class="md:col-span-2 bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">备注</div>
+                  <div class="mt-1 text-industrial-700 whitespace-pre-wrap">{{ openEvent.remark }}</div>
+                </div>
+              </div>
+
+              <!-- 处置记录时间线 -->
+              <div v-if="openEvent.logs.length > 0" class="mt-3">
+                <div class="text-xs font-medium text-industrial-500 mb-2">处置记录</div>
+                <ol class="relative border-l border-industrial-200 ml-1.5 space-y-3">
+                  <li v-for="log in openEvent.logs" :key="log.id" class="ml-4">
+                    <CircleDot class="w-3 h-3 absolute -left-[7px] mt-0.5 text-primary-600 bg-white" />
+                    <div class="text-xs text-industrial-800">
+                      <span class="font-medium">{{ handleActionText(log.action) }}</span>
+                      <span class="text-industrial-400"> · {{ log.operator }} · {{ formatTime(log.operateTime) }}</span>
+                    </div>
+                    <div v-if="log.detail" class="text-xs text-industrial-500 mt-0.5">{{ log.detail }}</div>
+                  </li>
+                </ol>
+              </div>
+
+              <div class="mt-4 flex justify-end gap-3">
+                <button class="btn-industrial-outline" @click="openDisposition(openEvent, 'confirm')">
+                  <UserRound class="w-4 h-4 inline mr-1" />
+                  {{ openEvent.status === 'PENDING' ? '确认责任人与处置计划' : '更新处置计划' }}
+                </button>
+                <button class="btn-industrial" @click="openDisposition(openEvent, 'resolve')">
+                  <CheckCircle2 class="w-4 h-4 inline mr-1" />
+                  标记处理完成
+                </button>
+              </div>
+            </div>
+
+            <!-- 历史告警处置记录（按状态筛选） -->
+            <div class="card-industrial overflow-hidden">
+              <div class="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-industrial-200">
+                <ListChecks class="w-4 h-4 text-primary-700" />
+                <h3 class="font-semibold text-industrial-800">历史告警处置记录</h3>
+                <span class="text-xs text-industrial-400 font-mono">
+                  共 {{ detail.alertEvents?.length ?? 0 }} 起
+                </span>
+                <div class="ml-auto flex items-center gap-1">
+                  <button
+                    v-for="opt in [
+                      { key: 'ALL', label: '全部' },
+                      { key: 'PENDING', label: '待处理' },
+                      { key: 'PROCESSING', label: '处置中' },
+                      { key: 'RESOLVED', label: '已关闭' },
+                    ]"
+                    :key="opt.key"
+                    class="px-2.5 py-1 rounded-industrial text-xs transition-colors"
+                    :class="historyStatusFilter === opt.key
+                      ? 'bg-primary-700 text-white'
+                      : 'text-industrial-500 hover:bg-industrial-100'"
+                    @click="historyStatusFilter = opt.key as AlertHandleStatus | 'ALL'"
+                  >
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="table-industrial">
+                  <thead>
+                    <tr>
+                      <th>事件编号</th>
+                      <th>级别</th>
+                      <th>触发时间</th>
+                      <th>状态</th>
+                      <th>责任人</th>
+                      <th>处置计划</th>
+                      <th>关闭方式/时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="eventItem in filteredHistory" :key="eventItem.id">
+                      <td class="font-mono text-xs text-primary-800">{{ eventItem.eventNo }}</td>
+                      <td>
+                        <span
+                          class="px-2 py-0.5 rounded text-xs font-medium"
+                          :class="eventItem.alertLevel === 'OVERLOAD'
+                            ? 'bg-red-100 text-red-700'
+                            : 'bg-accent-100 text-accent-700'"
+                        >
+                          {{ eventItem.alertLevel === 'OVERLOAD' ? '超载' : '预警' }}
+                        </span>
+                      </td>
+                      <td class="font-mono text-xs text-industrial-600">{{ formatTime(eventItem.triggerTime) }}</td>
+                      <td>
+                        <span
+                          class="px-2 py-0.5 rounded text-xs"
+                          :class="{
+                            'bg-red-100 text-red-700': eventItem.status === 'PENDING',
+                            'bg-accent-100 text-accent-700': eventItem.status === 'PROCESSING',
+                            'bg-green-100 text-green-700': eventItem.status === 'RESOLVED',
+                          }"
+                        >
+                          {{ alertStatusText(eventItem.status) }}
+                        </span>
+                      </td>
+                      <td class="text-industrial-700">{{ eventItem.responsiblePerson || '-' }}</td>
+                      <td class="text-xs text-industrial-600 max-w-[220px] truncate" :title="eventItem.handlePlan ?? ''">
+                        {{ eventItem.handlePlan || '-' }}
+                      </td>
+                      <td class="text-xs text-industrial-600">
+                        <template v-if="eventItem.status === 'RESOLVED'">
+                          {{ eventItem.closeType === 'AUTO' ? '系统自动关闭' : '手动关闭' }}
+                          <span class="font-mono text-industrial-400">{{ formatTime(eventItem.closeTime) }}</span>
+                        </template>
+                        <span v-else>-</span>
+                      </td>
+                    </tr>
+                    <tr v-if="filteredHistory.length === 0">
+                      <td colspan="7" class="text-center py-10 text-industrial-400">
+                        暂无符合条件的历史告警事件
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
@@ -534,6 +854,13 @@ onMounted(fetchBoard)
       v-model:visible="thresholdVisible"
       :line="selectedLine"
       @saved="handleThresholdSaved"
+    />
+
+    <AlertDispositionModal
+      v-model:visible="dispositionVisible"
+      :event="activeEvent"
+      :mode="dispositionMode"
+      @saved="handleDispositionSaved"
     />
   </div>
 </template>

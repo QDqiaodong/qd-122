@@ -19,6 +19,12 @@ public class LineLoadBoardResponse {
     private Integer warningCount;
     private Integer overloadCount;
 
+    /** 待处理（未确认责任人）的告警事件数 */
+    private Integer pendingAlertCount;
+
+    /** 未关闭（待处理 + 处置中）的告警事件数 */
+    private Integer openAlertCount;
+
     /** 全部产线负载概览，按 超载 > 预警 > 正常、负载率降序排列 */
     private List<LineLoadStats> lines;
 

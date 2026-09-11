@@ -48,4 +48,10 @@ public class LineLoadStats {
 
     /** 预警触发原因，超载/预警时非空，正常时为空集合 */
     private java.util.List<String> reasons;
+
+    /** 当前未关闭的告警事件ID（待处理/处置中），无未关闭事件时为 null */
+    private Long openAlertEventId;
+
+    /** 未关闭告警事件的处置状态：PENDING-待处理 / PROCESSING-处置中，无事件时为 null */
+    private String openAlertStatus;
 }

@@ -142,6 +142,46 @@ CREATE TABLE IF NOT EXISTS transfer_simulation_item (
     FOREIGN KEY (from_line_id) REFERENCES production_line(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序调拨模拟方案明细表';
 
+CREATE TABLE IF NOT EXISTS load_alert_event (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    event_no VARCHAR(32) NOT NULL UNIQUE COMMENT '告警事件编号',
+    line_id BIGINT NOT NULL COMMENT '产线ID',
+    line_code VARCHAR(32) NOT NULL COMMENT '产线编码（快照）',
+    line_name VARCHAR(64) NOT NULL COMMENT '产线名称（快照）',
+    alert_level VARCHAR(16) NOT NULL COMMENT '触发级别：WARNING-预警 OVERLOAD-超载',
+    snapshot_json TEXT NOT NULL COMMENT '触发时负载快照（LineLoadStats JSON）',
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '处置状态：PENDING-待处理 PROCESSING-处置中 RESOLVED-已关闭',
+    responsible_person VARCHAR(32) COMMENT '责任人',
+    handle_plan VARCHAR(512) COMMENT '处置计划',
+    remark VARCHAR(512) COMMENT '备注/处理说明',
+    close_type VARCHAR(16) COMMENT '关闭方式：MANUAL-手动关闭 AUTO-恢复正常自动关闭',
+    close_remark VARCHAR(512) COMMENT '关闭说明',
+    closed_by VARCHAR(32) COMMENT '关闭操作人（系统自动关闭为SYSTEM）',
+    trigger_time DATETIME NOT NULL COMMENT '告警触发时间',
+    confirm_time DATETIME COMMENT '首次确认时间',
+    close_time DATETIME COMMENT '关闭时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    active_line_id BIGINT COMMENT '未关闭事件标记（=line_id），关闭后置空；唯一约束保证同一产线至多一条未关闭事件',
+    manual_close_active TINYINT(1) NOT NULL DEFAULT 0 COMMENT '异常持续期间手动关闭的抑制标记，恢复正常后清除',
+    UNIQUE KEY uk_active_line (active_line_id),
+    INDEX idx_line_trigger (line_id, trigger_time),
+    INDEX idx_status (status),
+    FOREIGN KEY (line_id) REFERENCES production_line(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='产线负载告警事件表';
+
+CREATE TABLE IF NOT EXISTS load_alert_handle_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    event_id BIGINT NOT NULL COMMENT '告警事件ID',
+    action VARCHAR(16) NOT NULL COMMENT '操作类型：CONFIRM-确认 PLAN-更新计划 REMARK-备注 RESOLVE-手动关闭 AUTO_RESOLVE-自动关闭',
+    operator VARCHAR(32) NOT NULL COMMENT '操作人（系统为SYSTEM）',
+    operate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+    result_status VARCHAR(16) NOT NULL COMMENT '操作后事件状态',
+    detail VARCHAR(512) COMMENT '操作详情',
+    INDEX idx_event_time (event_id, operate_time),
+    FOREIGN KEY (event_id) REFERENCES load_alert_event(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='负载告警处置记录表';
+
 INSERT IGNORE INTO production_line
     (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max) VALUES
 ('LINE-001', '装配一号线', '精密小型件装配线', 2, 0.2000, 1.0000),

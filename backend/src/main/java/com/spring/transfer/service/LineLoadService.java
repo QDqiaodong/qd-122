@@ -5,8 +5,10 @@ import com.spring.transfer.dto.LineLoadDetailResponse;
 import com.spring.transfer.dto.LineLoadStats;
 import com.spring.transfer.dto.LineSimulationEstimate;
 import com.spring.transfer.dto.LineThresholdUpdateRequest;
+import com.spring.transfer.dto.LoadAlertEventResponse;
 import com.spring.transfer.dto.LoadStatus;
 import com.spring.transfer.dto.SimulationEstimateResponse;
+import com.spring.transfer.entity.LoadAlertEvent;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
 import com.spring.transfer.entity.TransferRecord;
@@ -14,6 +16,7 @@ import com.spring.transfer.repository.ProductionLineRepository;
 import com.spring.transfer.repository.SpringArchiveRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -53,9 +56,26 @@ public class LineLoadService {
     private final ProductionLineRepository productionLineRepository;
     private final SpringArchiveRepository springArchiveRepository;
     private final TransferRecordRepository transferRecordRepository;
+    /** 告警事件随负载计算结果同步：异常建事件、恢复自动关闭；@Lazy 规避循环依赖 */
+    private final LoadAlertService loadAlertService;
+
+    public LineLoadService(ProductionLineRepository productionLineRepository,
+                           SpringArchiveRepository springArchiveRepository,
+                           TransferRecordRepository transferRecordRepository,
+                           @Lazy LoadAlertService loadAlertService) {
+        this.productionLineRepository = productionLineRepository;
+        this.springArchiveRepository = springArchiveRepository;
+        this.transferRecordRepository = transferRecordRepository;
+        this.loadAlertService = loadAlertService;
+    }
 
     public LineLoadBoardResponse getBoard() {
         List<LineLoadStats> all = buildStats();
+
+        // 先按最新计算结果同步告警事件（异常新建/恢复自动关闭），再读取未关闭事件挂到概览项，
+        // 保证顶部统计、状态分组与告警标记来自同一次计算
+        loadAlertService.syncEvents(all);
+        Map<String, Integer> alertCounts = loadAlertService.attachOpenEvents(all);
 
         Map<LoadStatus, List<LineLoadStats>> grouped = all.stream()
                 .collect(Collectors.groupingBy(
@@ -68,6 +88,8 @@ public class LineLoadService {
         response.setNormalCount(grouped.getOrDefault(LoadStatus.NORMAL, List.of()).size());
         response.setWarningCount(grouped.getOrDefault(LoadStatus.WARNING, List.of()).size());
         response.setOverloadCount(grouped.getOrDefault(LoadStatus.OVERLOAD, List.of()).size());
+        response.setPendingAlertCount(alertCounts.get("pending"));
+        response.setOpenAlertCount(alertCounts.get("open"));
         response.setLines(all);
         response.setNormalLines(grouped.getOrDefault(LoadStatus.NORMAL, List.of()));
         response.setWarningLines(grouped.getOrDefault(LoadStatus.WARNING, List.of()));
@@ -97,11 +119,46 @@ public class LineLoadService {
                 trend.inCount.getOrDefault(lineId, 0),
                 trend.outCount.getOrDefault(lineId, 0));
 
+        // 明细同样先同步事件，保证打开抽屉看到的是最新处置闭环状态
+        loadAlertService.syncEvents(List.of(stats));
+        loadAlertService.attachOpenEvents(List.of(stats));
+
         LineLoadDetailResponse detail = new LineLoadDetailResponse();
         detail.setStats(stats);
         detail.setSprings(springs);
         detail.setRecentTransfers(transferRecordRepository.findRecentByLineId(lineId, after));
+
+        Map<Long, String> currentStatusMap = Map.of(lineId, stats.getStatus());
+        loadAlertService.findOpenEvent(lineId)
+                .ifPresent(event -> detail.setOpenAlertEvent(
+                        loadAlertService.toResponse(event, stats.getStatus())));
+        List<LoadAlertEvent> events = loadAlertService.findLineEvents(lineId, null);
+        detail.setAlertEvents(loadAlertService.toResponses(events, currentStatusMap));
         return Optional.of(detail);
+    }
+
+    /** 计算单条产线当前实时负载状态，供告警处置等场景轻量查询 */
+    public String getCurrentStatus(Long lineId) {
+        return getLineStats(lineId)
+                .map(LineLoadStats::getStatus)
+                .orElse(LoadStatus.NORMAL.name());
+    }
+
+    /** 计算单条产线当前实时负载概览（产线不存在时返回 empty） */
+    public Optional<LineLoadStats> getLineStats(Long lineId) {
+        Optional<ProductionLine> lineOpt = productionLineRepository.findById(lineId);
+        if (lineOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        ProductionLine line = lineOpt.get();
+        LocalDateTime after = LocalDateTime.now().minusDays(TREND_DAYS);
+        Map<Long, List<SpringArchive>> springsByLine = springArchiveRepository.findAll().stream()
+                .collect(Collectors.groupingBy(SpringArchive::getCurrentLineId));
+        TrendAggregation trend = aggregateTrend(transferRecordRepository.findByOperateTimeAfter(after));
+        List<SpringArchive> springs = springsByLine.getOrDefault(lineId, List.of());
+        return Optional.of(buildStats(line, springs.size(), countOutOfRange(line, springs),
+                trend.inCount.getOrDefault(lineId, 0),
+                trend.outCount.getOrDefault(lineId, 0)));
     }
 
     /**
@@ -219,7 +276,11 @@ public class LineLoadService {
         line.setDailyCapacityThreshold(request.getDailyCapacityThreshold());
         line.setElasticMin(request.getElasticMin());
         line.setElasticMax(request.getElasticMax());
-        return productionLineRepository.save(line);
+        ProductionLine saved = productionLineRepository.save(line);
+
+        // 阈值调整可能立即触发或解除告警：按新口径重算并同步事件
+        getLineStats(saved.getId()).ifPresent(stats -> loadAlertService.syncEvents(List.of(stats)));
+        return saved;
     }
 
     // ---------------------------------------------------------------------

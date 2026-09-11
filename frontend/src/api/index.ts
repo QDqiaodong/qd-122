@@ -14,6 +14,9 @@ import type {
   LineLoadBoard,
   LineLoadDetail,
   LineThresholdUpdateRequest,
+  LoadAlertEvent,
+  AlertHandleStatus,
+  AlertDispositionRequest,
   SimulationStatus,
   SimulationEstimate,
   SimulationDetail,
@@ -86,6 +89,17 @@ export const lineLoadApi = {
     request.get<unknown, ApiResponse<LineLoadDetail>>(`/line-load/lines/${lineId}`),
   updateThreshold: (lineId: number, data: LineThresholdUpdateRequest) =>
     request.put<unknown, ApiResponse<ProductionLine>>(`/line-load/lines/${lineId}/threshold`, data),
+}
+
+export const loadAlertApi = {
+  list: (params?: { status?: AlertHandleStatus; lineId?: number }) =>
+    request.get<unknown, ApiResponse<LoadAlertEvent[]>>('/line-load/alerts', { params }),
+  detail: (eventId: number) =>
+    request.get<unknown, ApiResponse<LoadAlertEvent>>(`/line-load/alerts/${eventId}`),
+  confirm: (eventId: number, data: AlertDispositionRequest) =>
+    request.post<unknown, ApiResponse<LoadAlertEvent>>(`/line-load/alerts/${eventId}/confirm`, data),
+  resolve: (eventId: number, data: AlertDispositionRequest) =>
+    request.post<unknown, ApiResponse<LoadAlertEvent>>(`/line-load/alerts/${eventId}/resolve`, data),
 }
 
 export const simulationApi = {

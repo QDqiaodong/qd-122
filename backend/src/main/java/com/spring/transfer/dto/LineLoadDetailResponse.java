@@ -17,4 +17,10 @@ public class LineLoadDetailResponse {
 
     /** 近 trendDays 天与该产线相关的划转流水（划入 + 划出），按时间倒序 */
     private List<TransferRecord> recentTransfers;
+
+    /** 该产线当前未关闭的告警事件（无则 null），含全部处置记录 */
+    private LoadAlertEventResponse openAlertEvent;
+
+    /** 该产线历史告警事件（含已关闭），按触发时间倒序，供按状态筛选历史处置记录 */
+    private List<LoadAlertEventResponse> alertEvents;
 }
