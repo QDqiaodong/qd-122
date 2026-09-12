@@ -6,6 +6,7 @@ import { springApi, specApi } from '@/api'
 import type { SpringArchive as SpringArchiveType, SealStatus } from '@/types'
 import BatchTransferModal from '@/components/BatchTransferModal.vue'
 import SpringSealModal from '@/components/SpringSealModal.vue'
+import SampleRegisterModal from '@/components/SampleRegisterModal.vue'
 import {
   Plus,
   Search,
@@ -19,6 +20,8 @@ import {
   Lock,
   LockOpen,
   OctagonPause,
+  ClipboardPlus,
+  TriangleAlert,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -41,6 +44,10 @@ const sealModalVisible = ref(false)
 const sealModalMode = ref<'seal' | 'unseal'>('seal')
 const sealTarget = ref<SpringArchiveType | null>(null)
 
+/** 弹力抽检留样登记弹窗 */
+const sampleModalVisible = ref(false)
+const sampleTarget = ref<SpringArchiveType | null>(null)
+
 const addForm = reactive({
   springCode: '',
   model: '',
@@ -62,7 +69,9 @@ const selectedSprings = computed(() => {
 })
 
 /** 封存中的弹簧不可勾选进入划转申请 */
-const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
+const selectableSprings = computed(() =>
+  springs.value.filter((s) => s.sealStatus !== 'SEALED' && !s.yellowFlag)
+)
 
 // 封存状态筛选变化即持久化，刷新页面后保持
 watch(
@@ -203,6 +212,15 @@ function handleUnseal(spring: SpringArchiveType) {
 }
 
 function handleSealSaved() {
+  fetchSprings()
+}
+
+function handleRegisterSample(spring: SpringArchiveType) {
+  sampleTarget.value = spring
+  sampleModalVisible.value = true
+}
+
+function handleSampleSaved() {
   fetchSprings()
 }
 
@@ -347,7 +365,10 @@ onMounted(async () => {
               v-for="(spring, index) in springs"
               :key="spring.id"
               class="animate-stagger"
-              :class="{ 'bg-red-50/50': spring.sealStatus === 'SEALED' }"
+              :class="{
+                'bg-red-50/50': spring.sealStatus === 'SEALED',
+                'bg-amber-50/60': spring.sealStatus !== 'SEALED' && spring.yellowFlag,
+              }"
               :style="handleRowAnimation(index)"
             >
               <td>
@@ -355,14 +376,28 @@ onMounted(async () => {
                   type="checkbox"
                   :value="spring.id"
                   v-model="selectedIds"
-                  :disabled="spring.sealStatus === 'SEALED'"
-                  :title="spring.sealStatus === 'SEALED' ? '封存中的弹簧不能进入划转申请' : ''"
+                  :disabled="spring.sealStatus === 'SEALED' || spring.yellowFlag"
+                  :title="
+                    spring.sealStatus === 'SEALED'
+                      ? '封存中的弹簧不能进入划转申请'
+                      : spring.yellowFlag
+                        ? `弹力抽检偏离待闭环（${spring.openDeviationCount ?? 0} 张未闭环留样），闭环前不能进入划转申请`
+                        : ''
+                  "
                   class="w-4 h-4 disabled:opacity-40 disabled:cursor-not-allowed"
                 />
               </td>
               <td class="font-mono text-sm font-medium text-primary-800">
                 <Cog class="w-4 h-4 inline mr-1 text-primary-500" />
                 {{ spring.springCode }}
+                <span
+                  v-if="spring.yellowFlag"
+                  class="ml-1 inline-flex items-center px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium cursor-help align-middle"
+                  :title="`弹力抽检偏离待闭环（${spring.openDeviationCount ?? 0} 张未闭环留样），闭环处置前不能划转`"
+                >
+                  <TriangleAlert class="w-3 h-3 mr-0.5" />
+                  黄标
+                </span>
               </td>
               <td class="text-industrial-800">
                 <Circle class="w-4 h-4 inline mr-1 text-industrial-400" />
@@ -407,22 +442,31 @@ onMounted(async () => {
                 {{ spring.createTime }}
               </td>
               <td>
-                <button
-                  v-if="spring.sealStatus === 'SEALED'"
-                  class="px-2 py-1 text-xs rounded border border-green-300 text-green-700 hover:bg-green-50 transition-colors"
-                  @click="handleUnseal(spring)"
-                >
-                  <LockOpen class="w-3 h-3 inline mr-1" />
-                  解封
-                </button>
-                <button
-                  v-else
-                  class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
-                  @click="handleSeal(spring)"
-                >
-                  <Lock class="w-3 h-3 inline mr-1" />
-                  封存
-                </button>
+                <div class="flex flex-col gap-1 items-start">
+                  <button
+                    class="px-2 py-1 text-xs rounded border border-amber-300 text-amber-700 hover:bg-amber-50 transition-colors whitespace-nowrap"
+                    @click="handleRegisterSample(spring)"
+                  >
+                    <ClipboardPlus class="w-3 h-3 inline mr-1" />
+                    留样登记
+                  </button>
+                  <button
+                    v-if="spring.sealStatus === 'SEALED'"
+                    class="px-2 py-1 text-xs rounded border border-green-300 text-green-700 hover:bg-green-50 transition-colors"
+                    @click="handleUnseal(spring)"
+                  >
+                    <LockOpen class="w-3 h-3 inline mr-1" />
+                    解封
+                  </button>
+                  <button
+                    v-else
+                    class="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50 transition-colors"
+                    @click="handleSeal(spring)"
+                  >
+                    <Lock class="w-3 h-3 inline mr-1" />
+                    封存
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -575,6 +619,13 @@ onMounted(async () => {
       :spring="sealTarget"
       :mode="sealModalMode"
       @saved="handleSealSaved"
+    />
+
+    <SampleRegisterModal
+      v-if="sampleModalVisible"
+      v-model:visible="sampleModalVisible"
+      :spring="sampleTarget"
+      @saved="handleSampleSaved"
     />
   </div>
 </template>

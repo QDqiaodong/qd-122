@@ -64,6 +64,10 @@ class ProductionLineHaltTest {
     private LineLoadService lineLoadService;
     @Mock
     private LoadAlertService loadAlertService;
+    @Mock
+    private NightLoadReviewService nightLoadReviewService;
+    @Mock
+    private ElasticSampleService elasticSampleService;
 
     private TransferApplicationService applicationService;
     private ProductionLineService lineService;
@@ -73,7 +77,7 @@ class ProductionLineHaltTest {
         applicationService = new TransferApplicationService(
                 applicationRepository, itemRepository, logRepository, springArchiveRepository,
                 productionLineRepository, transferRecordRepository, transactionManager,
-                lineLoadService, loadAlertService);
+                lineLoadService, loadAlertService, nightLoadReviewService, elasticSampleService);
         lineService = new ProductionLineService(productionLineRepository, itemRepository);
     }
 

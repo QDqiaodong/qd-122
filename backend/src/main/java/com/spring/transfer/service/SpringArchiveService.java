@@ -23,16 +23,19 @@ public class SpringArchiveService {
     private final SpringArchiveRepository springArchiveRepository;
     private final ProductionLineRepository productionLineRepository;
     private final ElasticSpecCacheService elasticSpecCacheService;
+    private final ElasticSampleService elasticSampleService;
 
     public Page<SpringArchive> findAll(Long lineId, SealStatus sealStatus, String keyword, Pageable pageable) {
         Page<SpringArchive> page = springArchiveRepository.findByCondition(lineId, sealStatus, keyword, pageable);
         enrichWithLineNames(page.getContent());
+        elasticSampleService.markYellowFlags(page.getContent());
         return page;
     }
 
     public Map<Long, List<SpringArchive>> groupByLine() {
         List<SpringArchive> all = springArchiveRepository.findAll();
         enrichWithLineNames(all);
+        elasticSampleService.markYellowFlags(all);
         return all.stream()
                 .collect(Collectors.groupingBy(
                         SpringArchive::getCurrentLineId,
@@ -44,12 +47,14 @@ public class SpringArchiveService {
     public Optional<SpringArchive> findById(Long id) {
         Optional<SpringArchive> opt = springArchiveRepository.findById(id);
         opt.ifPresent(this::enrichWithLineName);
+        opt.ifPresent(s -> elasticSampleService.markYellowFlags(List.of(s)));
         return opt;
     }
 
     public Optional<SpringArchive> findBySpringCode(String springCode) {
         Optional<SpringArchive> opt = springArchiveRepository.findBySpringCode(springCode);
         opt.ifPresent(this::enrichWithLineName);
+        opt.ifPresent(s -> elasticSampleService.markYellowFlags(List.of(s)));
         return opt;
     }
 
@@ -104,6 +109,7 @@ public class SpringArchiveService {
         spring.setUnsealConclusion(null);
         SpringArchive saved = springArchiveRepository.save(spring);
         enrichWithLineName(saved);
+        elasticSampleService.markYellowFlags(List.of(saved));
         return saved;
     }
 
@@ -124,6 +130,7 @@ public class SpringArchiveService {
         spring.setUnsealConclusion(request.getConclusion().trim());
         SpringArchive saved = springArchiveRepository.save(spring);
         enrichWithLineName(saved);
+        elasticSampleService.markYellowFlags(List.of(saved));
         return saved;
     }
 

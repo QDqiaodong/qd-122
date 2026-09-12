@@ -35,13 +35,15 @@ class SpringArchiveServiceSealTest {
     private ProductionLineRepository productionLineRepository;
     @Mock
     private ElasticSpecCacheService elasticSpecCacheService;
+    @Mock
+    private ElasticSampleService elasticSampleService;
 
     private SpringArchiveService springArchiveService;
 
     @BeforeEach
     void setUp() {
         springArchiveService = new SpringArchiveService(
-                springArchiveRepository, productionLineRepository, elasticSpecCacheService);
+                springArchiveRepository, productionLineRepository, elasticSpecCacheService, elasticSampleService);
         lenient().when(springArchiveRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(productionLineRepository.findAllById(any())).thenReturn(List.of());
     }

@@ -205,6 +205,35 @@ CREATE TABLE IF NOT EXISTS load_alert_handle_log (
     FOREIGN KEY (event_id) REFERENCES load_alert_event(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='负载告警处置记录表';
 
+CREATE TABLE IF NOT EXISTS elastic_sample (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    sample_no VARCHAR(32) NOT NULL UNIQUE COMMENT '留样编号',
+    spring_id BIGINT NOT NULL COMMENT '抽检弹簧ID',
+    spring_code VARCHAR(32) NOT NULL COMMENT '弹簧编号（快照）',
+    model VARCHAR(64) NOT NULL COMMENT '型号（快照）',
+    line_id BIGINT NOT NULL COMMENT '登记时所在产线ID（按产线登记）',
+    line_code VARCHAR(32) NOT NULL COMMENT '登记时产线编码（快照）',
+    line_name VARCHAR(64) NOT NULL COMMENT '登记时产线名称（快照）',
+    measured_coefficient DECIMAL(10,4) NOT NULL COMMENT '实测弹力系数 N/mm（已闭环不可改）',
+    line_elastic_min DECIMAL(10,4) COMMENT '登记时产线适用弹力系数下限快照',
+    line_elastic_max DECIMAL(10,4) COMMENT '登记时产线适用弹力系数上限快照',
+    deviated TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否偏离该线适用区间：0-在区间内 1-偏离（未闭环挂黄标）',
+    status VARCHAR(16) NOT NULL DEFAULT 'OPEN' COMMENT '状态：OPEN-待闭环 CLOSED-已闭环（已闭环实测系数不可改）',
+    operator VARCHAR(32) NOT NULL COMMENT '登记质量员',
+    conclusion VARCHAR(512) COMMENT '处置结论（不写不能闭环）',
+    close_operator VARCHAR(32) COMMENT '闭环操作人（质量员）',
+    close_time DATETIME COMMENT '闭环时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_sample_no (sample_no),
+    INDEX idx_status (status),
+    INDEX idx_line_id (line_id),
+    INDEX idx_spring_status (spring_id, status),
+    INDEX idx_create_time (create_time),
+    FOREIGN KEY (spring_id) REFERENCES spring_archive(id),
+    FOREIGN KEY (line_id) REFERENCES production_line(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='弹力抽检留样单表';
+
 CREATE TABLE IF NOT EXISTS night_load_review (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     review_no VARCHAR(32) NOT NULL UNIQUE COMMENT '复核单编号',

@@ -71,6 +71,10 @@ class TransferApplicationUrgentTest {
     private LineLoadService lineLoadService;
     @Mock
     private LoadAlertService loadAlertService;
+    @Mock
+    private NightLoadReviewService nightLoadReviewService;
+    @Mock
+    private ElasticSampleService elasticSampleService;
 
     private TransferApplicationService applicationService;
 
@@ -79,7 +83,7 @@ class TransferApplicationUrgentTest {
         applicationService = new TransferApplicationService(
                 applicationRepository, itemRepository, logRepository, springArchiveRepository,
                 productionLineRepository, transferRecordRepository, transactionManager,
-                lineLoadService, loadAlertService);
+                lineLoadService, loadAlertService, nightLoadReviewService, elasticSampleService);
         lenient().when(productionLineRepository.findAll()).thenReturn(List.of());
         lenient().when(applicationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -318,9 +322,11 @@ class TransferApplicationUrgentTest {
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
-        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(List.of(
+        // 先构造投影 mock 列表再传入 thenReturn，避免外层 when 未完成时嵌套 stub 触发 UnfinishedStubbing
+        var urgentStats = List.of(
                 urgentStat(10L, "TA20260912000100", ApplicationStatus.PENDING, 2L),
-                urgentStat(11L, "TA20260912000101", ApplicationStatus.PARTIAL, 3L)));
+                urgentStat(11L, "TA20260912000101", ApplicationStatus.PARTIAL, 3L));
+        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(urgentStats);
 
         LineLoadBoardResponse board = boardService.getBoard();
 
@@ -341,8 +347,10 @@ class TransferApplicationUrgentTest {
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
-        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(List.of(
-                urgentStat(20L, "TA20260912000102", ApplicationStatus.APPROVED, 0L)));
+        // 先构造投影 mock 列表再传入 thenReturn，避免外层 when 未完成时嵌套 stub 触发 UnfinishedStubbing
+        var urgentStats = List.of(
+                urgentStat(20L, "TA20260912000102", ApplicationStatus.APPROVED, 0L));
+        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(urgentStats);
 
         LineLoadBoardResponse board = boardService.getBoard();
 
@@ -366,8 +374,10 @@ class TransferApplicationUrgentTest {
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
-        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(List.of(
-                urgentStat(30L, "TA20260912000103", ApplicationStatus.APPROVED, 2L)));
+        // 先构造投影 mock 列表再传入 thenReturn，避免外层 when 未完成时嵌套 stub 触发 UnfinishedStubbing
+        var urgentStats = List.of(
+                urgentStat(30L, "TA20260912000103", ApplicationStatus.APPROVED, 2L));
+        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(urgentStats);
 
         LineLoadBoardResponse board = boardService.getBoard();
 
@@ -383,10 +393,11 @@ class TransferApplicationUrgentTest {
             Long applicationId, String applicationNo, ApplicationStatus status, long pendingItemCount) {
         TransferApplicationRepository.UrgentPendingStat stat =
                 mock(TransferApplicationRepository.UrgentPendingStat.class);
-        when(stat.getApplicationId()).thenReturn(applicationId);
-        when(stat.getApplicationNo()).thenReturn(applicationNo);
-        when(stat.getStatus()).thenReturn(status);
-        when(stat.getPendingItemCount()).thenReturn(pendingItemCount);
+        // 投影方法按各用例场景只用到其中一部分（如 stale 场景不读 status），统一 lenient
+        lenient().when(stat.getApplicationId()).thenReturn(applicationId);
+        lenient().when(stat.getApplicationNo()).thenReturn(applicationNo);
+        lenient().when(stat.getStatus()).thenReturn(status);
+        lenient().when(stat.getPendingItemCount()).thenReturn(pendingItemCount);
         return stat;
     }
 

@@ -62,7 +62,9 @@ const selectedSprings = computed(() => {
 })
 
 /** 封存中的弹簧（抽检不合格/待复测）不能进入划转申请 */
-const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
+const selectableSprings = computed(() =>
+  springs.value.filter((s) => s.sealStatus !== 'SEALED' && !s.yellowFlag)
+)
 
 /** 临时停台的产线不能作为划转接收方 */
 const haltedTargetLines = computed(() => {
@@ -132,6 +134,14 @@ function toggleSelect(id: number) {
   const spring = springs.value.find((s) => s.id === id)
   if (spring?.sealStatus === 'SEALED') {
     ElMessage.warning(`弹簧 ${spring.springCode} 处于封存状态，封存期间不能进入划转申请`)
+    return
+  }
+  if (spring?.yellowFlag) {
+    ElMessage.warning({
+      message: `弹簧 ${spring.springCode} 弹力抽检偏离待闭环（黄标件，${spring.openDeviationCount ?? 0} 张未闭环留样），闭环处置前不能进入划转申请`,
+      duration: 5000,
+      showClose: true,
+    })
     return
   }
   const index = selectedIds.value.indexOf(id)
@@ -321,8 +331,9 @@ onMounted(async () => {
                 :key="spring.id"
                 class="transition-colors"
                 :class="[
-                  spring.sealStatus === 'SEALED' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
+                  spring.sealStatus === 'SEALED' || spring.yellowFlag ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer',
                   { 'bg-primary-50': selectedIds.includes(spring.id) },
+                  spring.yellowFlag && spring.sealStatus !== 'SEALED' ? 'bg-amber-50/60' : '',
                 ]"
                 @click="toggleSelect(spring.id)"
               >
@@ -330,7 +341,7 @@ onMounted(async () => {
                   <input
                     type="checkbox"
                     :checked="selectedIds.includes(spring.id)"
-                    :disabled="spring.sealStatus === 'SEALED'"
+                    :disabled="spring.sealStatus === 'SEALED' || spring.yellowFlag"
                     @change="toggleSelect(spring.id)"
                     class="w-4 h-4 disabled:opacity-40 disabled:cursor-not-allowed"
                   />
@@ -343,6 +354,14 @@ onMounted(async () => {
                     :title="`封存原因：${spring.sealReason || '未登记'}${spring.sealExpectedUnsealDate ? '，预计解封日：' + spring.sealExpectedUnsealDate : ''}`"
                   >
                     封存中
+                  </span>
+                  <span
+                    v-else-if="spring.yellowFlag"
+                    class="ml-1 inline-flex items-center px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium cursor-help"
+                    :title="`弹力抽检偏离待闭环（${spring.openDeviationCount ?? 0} 张未闭环留样），闭环前不能划转`"
+                  >
+                    <AlertTriangle class="w-3 h-3 mr-0.5" />
+                    黄标
                   </span>
                 </td>
                 <td class="py-2">{{ spring.model }}</td>

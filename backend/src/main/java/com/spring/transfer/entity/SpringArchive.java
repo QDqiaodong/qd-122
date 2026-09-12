@@ -83,6 +83,21 @@ public class SpringArchive {
     }
 
     /**
+     * 黄标：存在偏离且未闭环的弹力抽检留样。标记实时按留样单重算（不落库），
+     * 偏离件闭环处置后自动摘标；黄标件不能勾进划转申请。
+     */
+    @Transient
+    private Boolean yellowFlag = false;
+
+    /** 未闭环偏离留样条数（黄标来源数） */
+    @Transient
+    private Integer openDeviationCount = 0;
+
+    public boolean isYellowFlagged() {
+        return Boolean.TRUE.equals(yellowFlag);
+    }
+
+    /**
      * 封存信息摘要，用于拦截提示等需要明确原因的场景，
      * 例如：SP-2024-0001（封存原因：抽检不合格，预计解封日：2026-09-20）
      */

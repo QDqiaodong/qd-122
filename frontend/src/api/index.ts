@@ -35,6 +35,11 @@ import type {
   CreateReviewRequest,
   ConfirmReviewRequest,
   ReviewGuard,
+  SampleStatus,
+  ElasticSample,
+  RegisterSampleRequest,
+  UpdateMeasuredRequest,
+  CloseSampleRequest,
 } from '@/types'
 
 const request = axios.create({
@@ -168,4 +173,27 @@ export const nightReviewApi = {
   /** 接班调度员确认（跟进说明必填） */
   confirm: (id: number, data: ConfirmReviewRequest) =>
     request.post<unknown, ApiResponse<NightLoadReviewDetail>>(`/night-reviews/${id}/confirm`, data),
+}
+
+export const elasticSampleApi = {
+  /** 留样单列表，可按 待闭环/已闭环、产线、是否偏离、关键词筛选（默认待闭环优先） */
+  list: (params?: {
+    status?: SampleStatus
+    lineId?: number
+    deviated?: boolean
+    keyword?: string
+    page?: number
+    size?: number
+  }) => request.get<unknown, ApiResponse<PageResponse<ElasticSample>>>('/elastic-samples', { params }),
+  detail: (id: number) =>
+    request.get<unknown, ApiResponse<ElasticSample>>(`/elastic-samples/${id}`),
+  /** 质量员按产线登记留样 */
+  register: (data: RegisterSampleRequest) =>
+    request.post<unknown, ApiResponse<ElasticSample>>('/elastic-samples', data),
+  /** 修改实测系数（仅待闭环可改，偏离标记按登记产线适用区间重算） */
+  updateMeasured: (id: number, data: UpdateMeasuredRequest) =>
+    request.put<unknown, ApiResponse<ElasticSample>>(`/elastic-samples/${id}/measured`, data),
+  /** 闭环（处置结论必填） */
+  close: (id: number, data: CloseSampleRequest) =>
+    request.post<unknown, ApiResponse<ElasticSample>>(`/elastic-samples/${id}/close`, data),
 }

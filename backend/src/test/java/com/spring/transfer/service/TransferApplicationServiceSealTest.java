@@ -58,6 +58,10 @@ class TransferApplicationServiceSealTest {
     private LineLoadService lineLoadService;
     @Mock
     private LoadAlertService loadAlertService;
+    @Mock
+    private NightLoadReviewService nightLoadReviewService;
+    @Mock
+    private ElasticSampleService elasticSampleService;
 
     private TransferApplicationService applicationService;
 
@@ -66,7 +70,7 @@ class TransferApplicationServiceSealTest {
         applicationService = new TransferApplicationService(
                 applicationRepository, itemRepository, logRepository, springArchiveRepository,
                 productionLineRepository, transferRecordRepository, transactionManager,
-                lineLoadService, loadAlertService);
+                lineLoadService, loadAlertService, nightLoadReviewService, elasticSampleService);
     }
 
     @Test

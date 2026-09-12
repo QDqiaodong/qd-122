@@ -201,6 +201,10 @@ export interface SpringArchive {
   unsealOperator?: string
   unsealTime?: string
   unsealConclusion?: string
+  /** 黄标：存在偏离且未闭环的弹力抽检留样（闭环处置前不能勾进划转申请，标记实时计算刷新后仍在） */
+  yellowFlag?: boolean
+  /** 未闭环偏离留样条数 */
+  openDeviationCount?: number
   createTime: string
   updateTime: string
 }
@@ -217,6 +221,60 @@ export interface SealRequest {
 
 /** 解封：必须填写结论 */
 export interface UnsealRequest {
+  operator: string
+  conclusion: string
+}
+
+// ---------------------------------------------------------------------
+// 弹力抽检留样
+// ---------------------------------------------------------------------
+
+/** 留样单状态：OPEN-待闭环 CLOSED-已闭环（已闭环实测系数不可改） */
+export type SampleStatus = 'OPEN' | 'CLOSED'
+
+/** 弹力抽检留样单 */
+export interface ElasticSample {
+  id: number
+  sampleNo: string
+  springId: number
+  springCode: string
+  model: string
+  /** 登记时所在产线（快照） */
+  lineId: number
+  lineCode: string
+  lineName: string
+  measuredCoefficient: number
+  lineElasticMin?: number | null
+  lineElasticMax?: number | null
+  /** 是否偏离该线适用区间 */
+  deviated: boolean
+  status: SampleStatus
+  operator: string
+  /** 处置结论：不写不能闭环 */
+  conclusion?: string | null
+  closeOperator?: string | null
+  closeTime?: string | null
+  createTime: string
+  updateTime: string
+  /** 弹簧当前所在产线名称（留样产线为登记时快照） */
+  springCurrentLineName?: string | null
+}
+
+/** 登记留样：质量员按产线登记（lineId 缺省取弹簧当前产线） */
+export interface RegisterSampleRequest {
+  springId: number
+  lineId?: number | null
+  measuredCoefficient: number
+  operator: string
+}
+
+/** 修改实测系数（仅待闭环可改） */
+export interface UpdateMeasuredRequest {
+  measuredCoefficient: number
+}
+
+/** 闭环：处置结论必填 */
+export interface CloseSampleRequest {
   operator: string
   conclusion: string
 }

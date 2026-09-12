@@ -54,6 +54,8 @@ public class TransferApplicationService {
     private final LoadAlertService loadAlertService;
     /** 接班门禁：提交新划转前必须先确认昨夜复核单；@Lazy 规避循环依赖 */
     private final NightLoadReviewService nightLoadReviewService;
+    /** 黄标门禁：弹力抽检偏离且留样未闭环的弹簧不能勾进划转申请 */
+    private final ElasticSampleService elasticSampleService;
 
     public TransferApplicationService(TransferApplicationRepository applicationRepository,
                                       TransferApplicationItemRepository itemRepository,
@@ -64,7 +66,8 @@ public class TransferApplicationService {
                                       PlatformTransactionManager transactionManager,
                                       @Lazy LineLoadService lineLoadService,
                                       @Lazy LoadAlertService loadAlertService,
-                                      @Lazy NightLoadReviewService nightLoadReviewService) {
+                                      @Lazy NightLoadReviewService nightLoadReviewService,
+                                      @Lazy ElasticSampleService elasticSampleService) {
         this.applicationRepository = applicationRepository;
         this.itemRepository = itemRepository;
         this.logRepository = logRepository;
@@ -75,6 +78,7 @@ public class TransferApplicationService {
         this.lineLoadService = lineLoadService;
         this.loadAlertService = loadAlertService;
         this.nightLoadReviewService = nightLoadReviewService;
+        this.elasticSampleService = elasticSampleService;
     }
 
     public Page<TransferApplication> findAll(ApplicationStatus status, String keyword, Boolean halted,
@@ -184,6 +188,9 @@ public class TransferApplicationService {
                     .collect(Collectors.joining("；"));
             throw new RuntimeException("以下弹簧处于封存状态，封存期间不能进入划转申请，请先解封: " + details);
         }
+
+        // 黄标校验：弹力抽检偏离且留样未闭环的弹簧不能勾进划转申请，提示中给出留样编号/实测系数/适用区间
+        elasticSampleService.assertNoOpenDeviation(springs);
 
         Map<Long, ProductionLine> lineCache = productionLineRepository.findAll().stream()
                 .collect(Collectors.toMap(ProductionLine::getId, Function.identity()));
@@ -393,6 +400,12 @@ public class TransferApplicationService {
         if (spring.isSealed()) {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "弹簧处于封存状态（" + spring.getSealSummary() + "），封存期间不能划转，请先解封");
+        }
+        // 申请提交后弹力抽检留样偏离未闭环（挂黄标）的，审批同样拦截，闭环处置前不允许归属变更
+        try {
+            elasticSampleService.assertNoOpenDeviation(List.of(spring));
+        } catch (RuntimeException e) {
+            return ItemProcessResult.fail(itemId, item.getSpringCode(), e.getMessage());
         }
         // 停台拦截按当前停台状态重算：悲观锁当前读，与停台/复台写串行化，
         // 复台提交后审批立即可见 NORMAL 并放行剩余待批行；

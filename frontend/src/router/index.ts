@@ -6,6 +6,7 @@ import TransferSimulation from '@/pages/TransferSimulation.vue'
 import TransferApproval from '@/pages/TransferApproval.vue'
 import TraceQuery from '@/pages/TraceQuery.vue'
 import NightReview from '@/pages/NightReview.vue'
+import ElasticSamples from '@/pages/ElasticSamples.vue'
 
 const routes = [
   {
@@ -43,6 +44,12 @@ const routes = [
     name: 'NightReview',
     component: NightReview,
     meta: { title: '夜班承载复核单' },
+  },
+  {
+    path: '/elastic-samples',
+    name: 'ElasticSamples',
+    component: ElasticSamples,
+    meta: { title: '弹力抽检留样' },
   },
   {
     path: '/trace',
