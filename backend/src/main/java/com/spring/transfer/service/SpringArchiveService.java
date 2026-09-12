@@ -1,6 +1,7 @@
 package com.spring.transfer.service;
 
 import com.spring.transfer.common.SealStatus;
+import com.spring.transfer.dto.FlagCountersignRequest;
 import com.spring.transfer.dto.SealRequest;
 import com.spring.transfer.dto.UnsealRequest;
 import com.spring.transfer.entity.ProductionLine;
@@ -128,6 +129,34 @@ public class SpringArchiveService {
         spring.setUnsealOperator(request.getOperator().trim());
         spring.setUnsealTime(LocalDateTime.now());
         spring.setUnsealConclusion(request.getConclusion().trim());
+        SpringArchive saved = springArchiveRepository.save(spring);
+        enrichWithLineName(saved);
+        elasticSampleService.markYellowFlags(List.of(saved));
+        return saved;
+    }
+
+    /**
+     * 摘标加签：偏离留样闭环后黄标不自动摘除，由质量主管在档案页对黄标件执行摘标加签，
+     * 工号与加签说明必填；仍有偏离留样待闭环时不允许加签（先闭环处置）。
+     * 加签成功后黄标摘除、恢复可勾选划转；加签记录持久化在档案上，刷新后仍在。
+     */
+    @Transactional
+    public SpringArchive countersignFlag(Long springId, FlagCountersignRequest request) {
+        SpringArchive spring = springArchiveRepository.findByIdForUpdate(springId)
+                .orElseThrow(() -> new RuntimeException("弹簧档案不存在"));
+        // 先按留样实时重算，确保按最新闭环状态判定
+        elasticSampleService.markYellowFlags(List.of(spring));
+        if (spring.getOpenDeviationCount() == null || spring.getOpenDeviationCount() == 0) {
+            throw new RuntimeException("弹簧 " + spring.getSpringCode() + " 当前无黄标，无需摘标加签");
+        }
+        if (spring.getPendingDeviationCount() != null && spring.getPendingDeviationCount() > 0) {
+            throw new RuntimeException("弹簧 " + spring.getSpringCode()
+                    + " 仍有 " + spring.getPendingDeviationCount()
+                    + " 张偏离留样待闭环，全部闭环处置后才能摘标加签");
+        }
+        spring.setFlagCountersignOperator(request.getOperatorId().trim());
+        spring.setFlagCountersignNote(request.getNote().trim());
+        spring.setFlagCountersignTime(LocalDateTime.now());
         SpringArchive saved = springArchiveRepository.save(spring);
         enrichWithLineName(saved);
         elasticSampleService.markYellowFlags(List.of(saved));

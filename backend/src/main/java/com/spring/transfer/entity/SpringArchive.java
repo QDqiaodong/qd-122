@@ -69,6 +69,20 @@ public class SpringArchive {
     @Column(name = "unseal_conclusion")
     private String unsealConclusion;
 
+    /**
+     * 黄标摘标加签：偏离留样闭环后黄标不自动摘除，须质量主管在档案页点「摘标加签」，
+     * 填写工号与加签说明后黄标才摘除并恢复可划转。加签信息持久化，刷新后仍在。
+     */
+    @Column(name = "flag_countersign_operator", length = 32)
+    private String flagCountersignOperator;
+
+    /** 摘标加签说明 */
+    @Column(name = "flag_countersign_note")
+    private String flagCountersignNote;
+
+    @Column(name = "flag_countersign_time")
+    private LocalDateTime flagCountersignTime;
+
     @CreationTimestamp
     @Column(name = "create_time", nullable = false, updatable = false)
     private LocalDateTime createTime;
@@ -83,18 +97,28 @@ public class SpringArchive {
     }
 
     /**
-     * 黄标：存在偏离且未闭环的弹力抽检留样。标记实时按留样单重算（不落库），
-     * 偏离件闭环处置后自动摘标；黄标件不能勾进划转申请。
+     * 黄标：存在偏离留样即挂标。偏离留样闭环后黄标不自动摘除，
+     * 须质量主管在档案页点「摘标加签」（工号+加签说明）后才摘除；
+     * 黄标件（含已闭环待加签）不能勾进划转申请。标记实时按留样单与加签状态重算（不落库）。
      */
     @Transient
     private Boolean yellowFlag = false;
 
-    /** 未闭环偏离留样条数（黄标来源数） */
+    /** 偏离留样总条数（含待闭环与已闭环待加签，黄标来源数） */
     @Transient
     private Integer openDeviationCount = 0;
 
+    /** 其中待闭环偏离留样条数（闭环全部完成后才允许摘标加签） */
+    @Transient
+    private Integer pendingDeviationCount = 0;
+
     public boolean isYellowFlagged() {
         return Boolean.TRUE.equals(yellowFlag);
+    }
+
+    /** 是否已完成摘标加签 */
+    public boolean isFlagCountersigned() {
+        return flagCountersignTime != null;
     }
 
     /**

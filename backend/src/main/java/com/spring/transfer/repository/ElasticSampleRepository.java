@@ -31,6 +31,6 @@ public interface ElasticSampleRepository extends JpaRepository<ElasticSample, Lo
     Page<ElasticSample> findByCondition(SampleStatus status, Long lineId, Boolean deviated,
                                         String keyword, Pageable pageable);
 
-    /** 一批弹簧的全部偏离待闭环留样（列表挂黄标计数 + 划转拦截提示） */
-    List<ElasticSample> findBySpringIdInAndStatusAndDeviatedTrueOrderByIdAsc(Collection<Long> springIds, SampleStatus status);
+    /** 一批弹簧的全部偏离留样（含待闭环与已闭环待摘标加签，列表挂黄标计数 + 划转拦截提示） */
+    List<ElasticSample> findBySpringIdInAndDeviatedTrueOrderByIdAsc(Collection<Long> springIds);
 }

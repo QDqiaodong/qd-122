@@ -1,6 +1,7 @@
 package com.spring.transfer.service;
 
 import com.spring.transfer.common.SealStatus;
+import com.spring.transfer.dto.FlagCountersignRequest;
 import com.spring.transfer.dto.SealRequest;
 import com.spring.transfer.dto.UnsealRequest;
 import com.spring.transfer.entity.SpringArchive;
@@ -16,9 +17,11 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
@@ -145,6 +148,87 @@ class SpringArchiveServiceSealTest {
         assertTrue(summary.contains("SP-2024-0001"));
         assertTrue(summary.contains("抽检不合格"));
         assertTrue(summary.contains("2026-09-20"));
+    }
+
+    @Test
+    void countersignAfterAllClosedRecordsOperatorIdAndNoteAndClearsYellowFlag() {
+        SpringArchive spring = spring(SealStatus.NONE);
+        when(springArchiveRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(spring));
+        // 模拟实时重算：加签前为「已闭环待加签」(open=1, pending=0)，加签后黄标摘除
+        AtomicInteger invocation = new AtomicInteger();
+        doAnswer(inv -> {
+            // 参数是 List<SpringArchive>
+            @SuppressWarnings("unchecked")
+            List<SpringArchive> targets = inv.getArgument(0);
+            if (invocation.incrementAndGet() == 1) {
+                targets.get(0).setOpenDeviationCount(1);
+                targets.get(0).setPendingDeviationCount(0);
+                targets.get(0).setYellowFlag(true);
+            } else {
+                targets.get(0).setOpenDeviationCount(0);
+                targets.get(0).setPendingDeviationCount(0);
+                targets.get(0).setYellowFlag(false);
+            }
+            return null;
+        }).when(elasticSampleService).markYellowFlags(any());
+
+        FlagCountersignRequest request = new FlagCountersignRequest();
+        request.setOperatorId("QZ-007");
+        request.setNote("偏离留样均已闭环复测合格，质量主管确认摘标");
+
+        SpringArchive result = springArchiveService.countersignFlag(1L, request);
+
+        assertEquals("QZ-007", result.getFlagCountersignOperator());
+        assertEquals("偏离留样均已闭环复测合格，质量主管确认摘标", result.getFlagCountersignNote());
+        assertNotNull(result.getFlagCountersignTime());
+        assertTrue(result.isFlagCountersigned());
+        assertFalse(result.isYellowFlagged(), "加签完成后黄标摘除，恢复可勾选划转");
+    }
+
+    @Test
+    void countersignRejectedWhileDeviationStillPending() {
+        SpringArchive spring = spring(SealStatus.NONE);
+        when(springArchiveRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(spring));
+        doAnswer(inv -> {
+            @SuppressWarnings("unchecked")
+            List<SpringArchive> targets = inv.getArgument(0);
+            targets.get(0).setOpenDeviationCount(2);
+            targets.get(0).setPendingDeviationCount(1);
+            targets.get(0).setYellowFlag(true);
+            return null;
+        }).when(elasticSampleService).markYellowFlags(any());
+
+        FlagCountersignRequest request = new FlagCountersignRequest();
+        request.setOperatorId("QZ-007");
+        request.setNote("尝试提前摘标");
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> springArchiveService.countersignFlag(1L, request));
+        assertTrue(ex.getMessage().contains("待闭环"));
+        assertTrue(ex.getMessage().contains("才能摘标加签"));
+        assertNull(spring.getFlagCountersignTime());
+    }
+
+    @Test
+    void countersignRejectedWhenNoYellowFlag() {
+        SpringArchive spring = spring(SealStatus.NONE);
+        when(springArchiveRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(spring));
+        doAnswer(inv -> {
+            @SuppressWarnings("unchecked")
+            List<SpringArchive> targets = inv.getArgument(0);
+            targets.get(0).setOpenDeviationCount(0);
+            targets.get(0).setPendingDeviationCount(0);
+            targets.get(0).setYellowFlag(false);
+            return null;
+        }).when(elasticSampleService).markYellowFlags(any());
+
+        FlagCountersignRequest request = new FlagCountersignRequest();
+        request.setOperatorId("QZ-007");
+        request.setNote("无标可摘");
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> springArchiveService.countersignFlag(1L, request));
+        assertTrue(ex.getMessage().contains("无黄标"));
     }
 
     private SpringArchive spring(SealStatus status) {

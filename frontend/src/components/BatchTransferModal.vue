@@ -61,7 +61,7 @@ const sealedSprings = computed(() => {
   return props.selectedSprings.filter((s) => s.sealStatus === 'SEALED')
 })
 
-/** 黄标件（弹力抽检偏离待闭环）不能进入划转申请 */
+/** 黄标件（待闭环或已闭环待摘标加签）不能进入划转申请 */
 const yellowFlagSprings = computed(() => {
   return props.selectedSprings.filter((s) => s.sealStatus !== 'SEALED' && s.yellowFlag)
 })
@@ -261,7 +261,7 @@ watch(
                   <span class="font-mono text-red-500">{{ sealedSprings.length }}</span>
                 </div>
                 <div v-if="yellowFlagSprings.length > 0" class="flex justify-between">
-                  <span>黄标拦截（抽检偏离待闭环）：</span>
+                  <span>黄标拦截（待闭环 / 待摘标加签）：</span>
                   <span class="font-mono text-amber-600">{{ yellowFlagSprings.length }}</span>
                 </div>
                 <div class="flex justify-between pt-2 border-t border-industrial-200 mt-2">
@@ -318,7 +318,7 @@ watch(
                     封存中，不可划转
                   </span>
                   <span v-else-if="spring.yellowFlag" class="text-amber-600 text-xs">
-                    抽检偏离待闭环，不可划转
+                    {{ (spring.pendingDeviationCount ?? 0) > 0 ? '抽检偏离待闭环，不可划转' : '已闭环待摘标加签，不可划转' }}
                   </span>
                   <span v-else-if="toLineId && spring.currentLineId !== toLineId" class="px-2 py-0.5 bg-accent-100 text-accent-700 rounded text-xs">
                     {{ lineStore.getLineName(toLineId) }}

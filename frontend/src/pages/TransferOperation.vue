@@ -130,6 +130,16 @@ function handleSelectAll() {
   }
 }
 
+/** 黄标不可勾选提示：区分「待闭环」与「已闭环待摘标加签」 */
+function yellowFlagHint(spring: SpringArchive) {
+  const total = spring.openDeviationCount ?? 0
+  const pending = spring.pendingDeviationCount ?? 0
+  if (pending > 0) {
+    return `弹力抽检偏离待闭环（${pending} 张待闭环），全部闭环并经质量主管摘标加签前不能划转`
+  }
+  return `偏离留样已闭环（${total} 张），待质量主管摘标加签；加签完成前不能划转`
+}
+
 function toggleSelect(id: number) {
   const spring = springs.value.find((s) => s.id === id)
   if (spring?.sealStatus === 'SEALED') {
@@ -137,8 +147,12 @@ function toggleSelect(id: number) {
     return
   }
   if (spring?.yellowFlag) {
+    const pending = spring.pendingDeviationCount ?? 0
+    const message = pending > 0
+      ? `弹簧 ${spring.springCode} 弹力抽检偏离待闭环（黄标件，${pending} 张待闭环留样），全部闭环并经质量主管摘标加签前不能进入划转申请`
+      : `弹簧 ${spring.springCode} 偏离留样已闭环但黄标未摘除（${spring.openDeviationCount ?? 0} 张待加签），须质量主管在档案页摘标加签后才能进入划转申请`
     ElMessage.warning({
-      message: `弹簧 ${spring.springCode} 弹力抽检偏离待闭环（黄标件，${spring.openDeviationCount ?? 0} 张未闭环留样），闭环处置前不能进入划转申请`,
+      message,
       duration: 5000,
       showClose: true,
     })
@@ -358,10 +372,10 @@ onMounted(async () => {
                   <span
                     v-else-if="spring.yellowFlag"
                     class="ml-1 inline-flex items-center px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium cursor-help"
-                    :title="`弹力抽检偏离待闭环（${spring.openDeviationCount ?? 0} 张未闭环留样），闭环前不能划转`"
+                    :title="yellowFlagHint(spring)"
                   >
                     <AlertTriangle class="w-3 h-3 mr-0.5" />
-                    黄标
+                    {{ spring.pendingDeviationCount && spring.pendingDeviationCount > 0 ? '黄标·待闭环' : '黄标·待加签' }}
                   </span>
                 </td>
                 <td class="py-2">{{ spring.model }}</td>

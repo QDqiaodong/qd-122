@@ -201,12 +201,30 @@ export interface SpringArchive {
   unsealOperator?: string
   unsealTime?: string
   unsealConclusion?: string
-  /** 黄标：存在偏离且未闭环的弹力抽检留样（闭环处置前不能勾进划转申请，标记实时计算刷新后仍在） */
+  /**
+   * 黄标：存在未被摘标加签确认的偏离留样。
+   * 偏离留样闭环后黄标不自动摘除，须质量主管在档案页点「摘标加签」（工号+加签说明）后才摘除；
+   * 加签完成前不能勾进划转申请。标记实时计算，刷新后仍在。
+   */
   yellowFlag?: boolean
-  /** 未闭环偏离留样条数 */
+  /** 未被加签确认的偏离留样条数（待闭环 + 已闭环待加签） */
   openDeviationCount?: number
+  /** 其中待闭环偏离留样条数（全部闭环后才允许摘标加签） */
+  pendingDeviationCount?: number
+  /** 最近一次黄标摘标加签：质量主管工号 */
+  flagCountersignOperator?: string
+  /** 最近一次黄标摘标加签：加签说明 */
+  flagCountersignNote?: string
+  /** 最近一次黄标摘标加签时间 */
+  flagCountersignTime?: string
   createTime: string
   updateTime: string
+}
+
+/** 黄标摘标加签：质量主管填写工号与加签说明，二者必填 */
+export interface FlagCountersignRequest {
+  operatorId: string
+  note: string
 }
 
 /** 封存状态：正常 / 封存中 */

@@ -89,7 +89,7 @@ async function handleSubmit() {
     localStorage.setItem(OPERATOR_KEY, form.operator.trim())
     ElMessage.success(
       response.data.deviated
-        ? `留样 ${response.data.sampleNo} 已登记：实测系数偏离适用区间，弹簧档案已挂黄标，闭环处置前不能划转`
+        ? `留样 ${response.data.sampleNo} 已登记：实测系数偏离适用区间，弹簧档案已挂黄标，闭环并经质量主管摘标加签前不能划转`
         : `留样 ${response.data.sampleNo} 已登记：实测系数在适用区间内`
     )
     dialogVisible.value = false
@@ -160,7 +160,7 @@ async function handleSubmit() {
           <CheckCircle2 v-else class="w-4 h-4 flex-shrink-0 mt-0.5" />
           <span>
             {{ previewDeviated
-              ? `实测系数偏离该线适用区间（${targetLine ? rangeText(targetLine.elasticMin, targetLine.elasticMax) : ''}），登记后弹簧档案挂黄标，闭环处置前不能勾进划转申请`
+              ? `实测系数偏离该线适用区间（${targetLine ? rangeText(targetLine.elasticMin, targetLine.elasticMax) : ''}），登记后弹簧档案挂黄标，全部闭环并经质量主管摘标加签前不能勾进划转申请`
               : '实测系数在该线适用区间内，登记后为待闭环留样，不挂黄标' }}
           </span>
         </div>

@@ -7,6 +7,7 @@ import type { SpringArchive as SpringArchiveType, SealStatus } from '@/types'
 import BatchTransferModal from '@/components/BatchTransferModal.vue'
 import SpringSealModal from '@/components/SpringSealModal.vue'
 import SampleRegisterModal from '@/components/SampleRegisterModal.vue'
+import FlagCountersignModal from '@/components/FlagCountersignModal.vue'
 import {
   Plus,
   Search,
@@ -47,6 +48,10 @@ const sealTarget = ref<SpringArchiveType | null>(null)
 /** 弹力抽检留样登记弹窗 */
 const sampleModalVisible = ref(false)
 const sampleTarget = ref<SpringArchiveType | null>(null)
+
+/** 黄标摘标加签弹窗（偏离留样闭环后黄标保持，须质量主管加签后才摘除） */
+const countersignModalVisible = ref(false)
+const countersignTarget = ref<SpringArchiveType | null>(null)
 
 const addForm = reactive({
   springCode: '',
@@ -224,6 +229,26 @@ function handleSampleSaved() {
   fetchSprings()
 }
 
+/** 偏离留样闭环后黄标不自动摘除，质量主管在档案页点「摘标加签」 */
+function handleCountersign(spring: SpringArchiveType) {
+  countersignTarget.value = spring
+  countersignModalVisible.value = true
+}
+
+/** 黄标不可勾选提示：区分「待闭环」与「已闭环待摘标加签」 */
+function yellowFlagHint(spring: SpringArchiveType) {
+  const total = spring.openDeviationCount ?? 0
+  const pending = spring.pendingDeviationCount ?? 0
+  if (pending > 0) {
+    return `弹力抽检偏离待闭环（${pending} 张待闭环），全部闭环并经质量主管摘标加签前不能进入划转申请`
+  }
+  return `偏离留样已闭环（${total} 张），待质量主管摘标加签；加签完成前不能进入划转申请`
+}
+
+function handleCountersignSaved() {
+  fetchSprings()
+}
+
 function handleTransferSuccess() {
   selectedIds.value = []
   fetchSprings()
@@ -233,6 +258,10 @@ function handleRowAnimation(index: number) {
   return {
     animationDelay: `${index * 30}ms`,
   }
+}
+
+function formatCountersignTime(time?: string | null) {
+  return time ? time.replace('T', ' ').substring(0, 19) : '-'
 }
 
 onMounted(async () => {
@@ -381,7 +410,7 @@ onMounted(async () => {
                     spring.sealStatus === 'SEALED'
                       ? '封存中的弹簧不能进入划转申请'
                       : spring.yellowFlag
-                        ? `弹力抽检偏离待闭环（${spring.openDeviationCount ?? 0} 张未闭环留样），闭环前不能进入划转申请`
+                        ? yellowFlagHint(spring)
                         : ''
                   "
                   class="w-4 h-4 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -393,10 +422,18 @@ onMounted(async () => {
                 <span
                   v-if="spring.yellowFlag"
                   class="ml-1 inline-flex items-center px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-medium cursor-help align-middle"
-                  :title="`弹力抽检偏离待闭环（${spring.openDeviationCount ?? 0} 张未闭环留样），闭环处置前不能划转`"
+                  :title="yellowFlagHint(spring)"
                 >
                   <TriangleAlert class="w-3 h-3 mr-0.5" />
                   黄标
+                </span>
+                <span
+                  v-else-if="spring.flagCountersignTime"
+                  class="ml-1 inline-flex items-center px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium cursor-help align-middle"
+                  :title="`已于 ${formatCountersignTime(spring.flagCountersignTime)} 由质量主管（工号 ${spring.flagCountersignOperator}）摘标加签：${spring.flagCountersignNote}`"
+                >
+                  <CheckCircle2 class="w-3 h-3 mr-0.5" />
+                  已摘标加签
                 </span>
               </td>
               <td class="text-industrial-800">
@@ -449,6 +486,15 @@ onMounted(async () => {
                   >
                     <ClipboardPlus class="w-3 h-3 inline mr-1" />
                     留样登记
+                  </button>
+                  <button
+                    v-if="spring.yellowFlag"
+                    class="px-2 py-1 text-xs rounded border border-amber-500 bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors whitespace-nowrap font-medium"
+                    :title="yellowFlagHint(spring)"
+                    @click="handleCountersign(spring)"
+                  >
+                    <CheckCircle2 class="w-3 h-3 inline mr-1" />
+                    摘标加签
                   </button>
                   <button
                     v-if="spring.sealStatus === 'SEALED'"
@@ -626,6 +672,13 @@ onMounted(async () => {
       v-model:visible="sampleModalVisible"
       :spring="sampleTarget"
       @saved="handleSampleSaved"
+    />
+
+    <FlagCountersignModal
+      v-if="countersignModalVisible"
+      v-model:visible="countersignModalVisible"
+      :spring="countersignTarget"
+      @saved="handleCountersignSaved"
     />
   </div>
 </template>

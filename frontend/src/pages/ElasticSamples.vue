@@ -133,6 +133,8 @@ onMounted(async () => {
             登记留样编号与实测弹力系数，系统自动比对该线适用区间；偏离件在弹簧档案挂
             <span class="px-1 bg-amber-100 text-amber-700 rounded font-medium">黄标</span>，
             未闭环前不能勾进划转申请；处置结论填写后方可闭环，已闭环单实测系数不可修改。
+            偏离留样闭环后黄标不自动摘除，须质量主管在弹簧档案页点「摘标加签」（填工号与加签说明），
+            加签完成后才恢复可勾选划转；加签记录持久化，刷新后仍在。
           </p>
         </div>
         <button class="btn-industrial-accent whitespace-nowrap" @click="goRegister">

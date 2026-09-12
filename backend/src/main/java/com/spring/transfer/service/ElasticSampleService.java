@@ -28,7 +28,8 @@ import java.util.stream.Collectors;
 
 /**
  * 弹力抽检留样：质量员按产线登记实测弹力系数，系统按该线适用区间判定偏离；
- * 偏离且待闭环的留样为弹簧档案挂黄标，黄标件不能进入划转申请；
+ * 偏离留样闭环后弹簧档案黄标不自动摘除，须质量主管在档案页点「摘标加签」（工号+加签说明）后才摘除；
+ * 黄标件（待闭环或已闭环待加签）不能进入划转申请；
  * 留样单必须填写处置结论才能闭环，已闭环单实测系数不可再改。
  */
 @Slf4j
@@ -114,7 +115,7 @@ public class ElasticSampleService {
     }
 
     /**
-     * 闭环：处置结论必填；闭环后黄标按剩余未闭环偏离留样重算，全部处置完自动摘标。
+     * 闭环：处置结论必填；闭环后黄标不摘除，须质量主管在档案页对该件摘标加签后才摘除。
      */
     @Transactional
     public ElasticSample close(Long id, CloseSampleRequest request) {
@@ -134,7 +135,10 @@ public class ElasticSampleService {
     }
 
     /**
-     * 为弹簧列表批量挂接黄标标记（偏离待闭环留样存在即挂标），标记实时计算，刷新后仍在。
+     * 为弹簧列表批量挂接黄标标记。黄标分两阶段摘除：
+     * 1. 偏离留样全部闭环后仍保持黄标（已闭环待加签）；
+     * 2. 质量主管在档案页完成摘标加签（工号+说明，以加签时间为水位）后才摘除；
+     * 加签后若再出现新的偏离留样（待闭环、或加签后闭环的），黄标重新挂上。
      */
     @Transactional(readOnly = true)
     public void markYellowFlags(List<SpringArchive> springs) {
@@ -142,19 +146,33 @@ public class ElasticSampleService {
             return;
         }
         List<Long> springIds = springs.stream().map(SpringArchive::getId).toList();
-        List<ElasticSample> openDeviations =
-                sampleRepository.findBySpringIdInAndStatusAndDeviatedTrueOrderByIdAsc(springIds, SampleStatus.OPEN);
-        Map<Long, Long> countMap = openDeviations.stream()
-                .collect(Collectors.groupingBy(ElasticSample::getSpringId, Collectors.counting()));
+        List<ElasticSample> deviations =
+                sampleRepository.findBySpringIdInAndDeviatedTrueOrderByIdAsc(springIds);
+        Map<Long, List<ElasticSample>> bySpring = deviations.stream()
+                .collect(Collectors.groupingBy(ElasticSample::getSpringId));
         springs.forEach(s -> {
-            long count = countMap.getOrDefault(s.getId(), 0L);
-            s.setOpenDeviationCount((int) count);
-            s.setYellowFlag(count > 0);
+            List<ElasticSample> samples = bySpring.getOrDefault(s.getId(), List.of());
+            int pending = 0;
+            int unacknowledged = 0;
+            LocalDateTime countersignTime = s.getFlagCountersignTime();
+            for (ElasticSample sample : samples) {
+                if (!isAcknowledged(sample, countersignTime)) {
+                    unacknowledged++;
+                    if (sample.isOpen()) {
+                        pending++;
+                    }
+                }
+            }
+            s.setOpenDeviationCount(unacknowledged);
+            s.setPendingDeviationCount(pending);
+            s.setYellowFlag(unacknowledged > 0);
         });
     }
 
     /**
-     * 划转门禁：存在偏离待闭环留样（黄标件）的弹簧不能勾进划转申请，
+     * 划转门禁：黄标件不能勾进划转申请，包含两种情形：
+     * - 仍有偏离留样待闭环；
+     * - 偏离留样已闭环但质量主管尚未摘标加签。
      * 提示中给出留样编号、实测系数与登记产线适用区间。
      */
     @Transactional(readOnly = true)
@@ -163,29 +181,47 @@ public class ElasticSampleService {
             return;
         }
         List<Long> springIds = springs.stream().map(SpringArchive::getId).toList();
-        List<ElasticSample> openDeviations =
-                sampleRepository.findBySpringIdInAndStatusAndDeviatedTrueOrderByIdAsc(springIds, SampleStatus.OPEN);
-        if (openDeviations.isEmpty()) {
-            return;
-        }
-        // 同一弹簧可能有多张未闭环偏离单，按弹簧编号去重展示
+        List<ElasticSample> deviations =
+                sampleRepository.findBySpringIdInAndDeviatedTrueOrderByIdAsc(springIds);
         Map<Long, String> codeMap = springs.stream()
                 .collect(Collectors.toMap(SpringArchive::getId, SpringArchive::getSpringCode));
-        Map<Long, List<ElasticSample>> bySpring = openDeviations.stream()
+        Map<Long, LocalDateTime> countersignMap = springs.stream()
+                .collect(Collectors.toMap(SpringArchive::getId,
+                        s -> s.getFlagCountersignTime() == null ? LocalDateTime.MIN : s.getFlagCountersignTime()));
+        Map<Long, List<ElasticSample>> bySpring = deviations.stream()
+                .filter(sm -> !isAcknowledged(sm, countersignMap.get(sm.getSpringId())))
                 .collect(Collectors.groupingBy(ElasticSample::getSpringId, HashMap::new, Collectors.toList()));
+        if (bySpring.isEmpty()) {
+            return;
+        }
         String details = bySpring.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(e -> {
-                    ElasticSample first = e.getValue().get(0);
+                    List<ElasticSample> list = e.getValue();
+                    ElasticSample first = list.get(0);
                     first.setSpringCode(codeMap.getOrDefault(e.getKey(), first.getSpringCode()));
-                    String tail = e.getValue().size() > 1
-                            ? " 等 " + e.getValue().size() + " 张未闭环偏离留样"
-                            : "（留样 " + first.getSampleNo() + "：实测 " + first.getMeasuredCoefficient()
+                    boolean allClosed = list.stream().noneMatch(ElasticSample::isOpen);
+                    String tail;
+                    if (allClosed) {
+                        tail = "（偏离留样已闭环 " + list.size() + " 张，待质量主管摘标加签）";
+                    } else if (list.size() > 1) {
+                        tail = " 等 " + list.size() + " 张偏离留样未闭环";
+                    } else {
+                        tail = "（留样 " + first.getSampleNo() + "：实测 " + first.getMeasuredCoefficient()
                               + "，" + first.getLineName() + "适用区间 " + first.rangeText() + "）";
+                    }
                     return first.getSpringCode() + tail;
                 })
                 .collect(Collectors.joining("；"));
-        throw new RuntimeException("以下弹簧弹力抽检偏离且留样未闭环（黄标件），闭环处置前不能进入划转申请: " + details);
+        throw new RuntimeException("以下弹簧为黄标件，闭环处置并经质量主管摘标加签前不能进入划转申请: " + details);
+    }
+
+    /** 偏离留样是否已被质量主管加签确认：加签时间晚于该留样闭环时间（待闭环单恒为未确认） */
+    private boolean isAcknowledged(ElasticSample sample, LocalDateTime countersignTime) {
+        if (sample.isOpen() || sample.getCloseTime() == null || countersignTime == null) {
+            return false;
+        }
+        return countersignTime.isAfter(sample.getCloseTime());
     }
 
     /** 实测系数是否偏离适用区间；区间端点为 null 表示该侧不限 */

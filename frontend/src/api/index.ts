@@ -5,6 +5,7 @@ import type {
   SpringArchive,
   SealRequest,
   UnsealRequest,
+  FlagCountersignRequest,
   SealStatus,
   LineHaltRequest,
   LineResumeRequest,
@@ -96,6 +97,9 @@ export const springApi = {
     request.post<unknown, ApiResponse<SpringArchive>>(`/springs/${id}/seal`, data),
   unseal: (id: number, data: UnsealRequest) =>
     request.post<unknown, ApiResponse<SpringArchive>>(`/springs/${id}/unseal`, data),
+  /** 黄标摘标加签：偏离留样全部闭环后，质量主管填工号+加签说明摘标（加签完成前仍不可勾选划转） */
+  flagCountersign: (id: number, data: FlagCountersignRequest) =>
+    request.post<unknown, ApiResponse<SpringArchive>>(`/springs/${id}/flag-countersign`, data),
 }
 
 export const transferApi = {

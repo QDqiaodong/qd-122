@@ -95,7 +95,7 @@ async function handleSubmit() {
       }
       const response = await elasticSampleApi.close(props.sample.id, payload)
       localStorage.setItem(OPERATOR_KEY, form.operator.trim())
-      ElMessage.success('留样已闭环，偏离件处置完成后黄标自动摘除')
+      ElMessage.success('留样已闭环；偏离件黄标不自动摘除，须质量主管在档案页摘标加签后恢复可划转')
       dialogVisible.value = false
       emit('saved', response.data)
     } else {
@@ -104,7 +104,7 @@ async function handleSubmit() {
       ElMessage.success(
         response.data.deviated
           ? '实测系数已更新：仍偏离适用区间，黄标保持'
-          : '实测系数已更新：已回到适用区间，若该弹簧无其他未闭环偏离单则黄标摘除'
+          : '实测系数已更新：已回到适用区间，若该弹簧无其他未加签确认的偏离单则黄标摘除'
       )
       dialogVisible.value = false
       emit('saved', response.data)
@@ -153,7 +153,7 @@ async function handleSubmit() {
         class="flex items-start gap-2 p-2 rounded-industrial bg-amber-50 border border-amber-200 text-xs text-amber-700"
       >
         <AlertTriangle class="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <span>该件为偏离件，闭环后若该弹簧无其他未闭环偏离留样，档案黄标自动摘除并恢复可划转。</span>
+        <span>该件为偏离件，闭环后黄标不会自动摘除；全部偏离留样闭环后，须由质量主管在弹簧档案页点「摘标加签」（填工号与加签说明），黄标才摘除并恢复可划转。</span>
       </div>
 
       <!-- 修改实测系数 -->
@@ -181,7 +181,7 @@ async function handleSubmit() {
             <span>
               {{ previewDeviated
                 ? `修改后仍偏离适用区间（${rangeText(sample)}），黄标保持`
-                : `修改后回到适用区间（${rangeText(sample)}），保存后黄标按剩余未闭环偏离单重算` }}
+                : `修改后回到适用区间（${rangeText(sample)}），保存后黄标按剩余未加签确认的偏离单重算` }}
             </span>
           </div>
           <p class="text-xs text-industrial-400 mt-2">

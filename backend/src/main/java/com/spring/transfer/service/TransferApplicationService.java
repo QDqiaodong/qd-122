@@ -189,7 +189,7 @@ public class TransferApplicationService {
             throw new RuntimeException("以下弹簧处于封存状态，封存期间不能进入划转申请，请先解封: " + details);
         }
 
-        // 黄标校验：弹力抽检偏离且留样未闭环的弹簧不能勾进划转申请，提示中给出留样编号/实测系数/适用区间
+        // 黄标校验：偏离留样待闭环、或已闭环待质量主管摘标加签的弹簧都不能勾进划转申请
         elasticSampleService.assertNoOpenDeviation(springs);
 
         Map<Long, ProductionLine> lineCache = productionLineRepository.findAll().stream()
@@ -401,7 +401,7 @@ public class TransferApplicationService {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "弹簧处于封存状态（" + spring.getSealSummary() + "），封存期间不能划转，请先解封");
         }
-        // 申请提交后弹力抽检留样偏离未闭环（挂黄标）的，审批同样拦截，闭环处置前不允许归属变更
+        // 申请提交后黄标仍未摘除（留样偏离待闭环、或已闭环待质量主管摘标加签）的，审批同样拦截
         try {
             elasticSampleService.assertNoOpenDeviation(List.of(spring));
         } catch (RuntimeException e) {

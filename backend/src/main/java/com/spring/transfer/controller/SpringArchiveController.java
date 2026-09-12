@@ -2,6 +2,7 @@ package com.spring.transfer.controller;
 
 import com.spring.transfer.common.ApiResponse;
 import com.spring.transfer.common.SealStatus;
+import com.spring.transfer.dto.FlagCountersignRequest;
 import com.spring.transfer.dto.SealRequest;
 import com.spring.transfer.dto.UnsealRequest;
 import com.spring.transfer.entity.SpringArchive;
@@ -75,6 +76,20 @@ public class SpringArchiveController {
     public ApiResponse<SpringArchive> unseal(@PathVariable Long id, @Valid @RequestBody UnsealRequest request) {
         try {
             return ApiResponse.success(springArchiveService.unseal(id, request));
+        } catch (Exception e) {
+            return ApiResponse.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 摘标加签：偏离留样全部闭环后，质量主管在档案页填写工号与加签说明摘除黄标；
+     * 加签完成前该件在划转申请里仍不可勾选。工号或说明为空时由校验拦截。
+     */
+    @PostMapping("/{id}/flag-countersign")
+    public ApiResponse<SpringArchive> flagCountersign(@PathVariable Long id,
+                                                      @Valid @RequestBody FlagCountersignRequest request) {
+        try {
+            return ApiResponse.success(springArchiveService.countersignFlag(id, request));
         } catch (Exception e) {
             return ApiResponse.error(e.getMessage());
         }
