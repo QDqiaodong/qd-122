@@ -5,6 +5,7 @@ import TransferOperation from '@/pages/TransferOperation.vue'
 import TransferSimulation from '@/pages/TransferSimulation.vue'
 import TransferApproval from '@/pages/TransferApproval.vue'
 import TraceQuery from '@/pages/TraceQuery.vue'
+import NightReview from '@/pages/NightReview.vue'
 
 const routes = [
   {
@@ -36,6 +37,12 @@ const routes = [
     name: 'TransferApproval',
     component: TransferApproval,
     meta: { title: '划转申请审批' },
+  },
+  {
+    path: '/night-review',
+    name: 'NightReview',
+    component: NightReview,
+    meta: { title: '夜班承载复核单' },
   },
   {
     path: '/trace',

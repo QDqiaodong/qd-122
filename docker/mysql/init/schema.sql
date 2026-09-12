@@ -205,6 +205,37 @@ CREATE TABLE IF NOT EXISTS load_alert_handle_log (
     FOREIGN KEY (event_id) REFERENCES load_alert_event(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='负载告警处置记录表';
 
+CREATE TABLE IF NOT EXISTS night_load_review (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    review_no VARCHAR(32) NOT NULL UNIQUE COMMENT '复核单编号',
+    review_date DATE NOT NULL COMMENT '复核所属夜班日期',
+    line_id BIGINT NOT NULL COMMENT '复核产线ID',
+    line_code VARCHAR(32) NOT NULL COMMENT '产线编码（快照）',
+    line_name VARCHAR(64) NOT NULL COMMENT '产线名称（快照）',
+    spring_count INT NOT NULL COMMENT '签发时当前归属弹簧数（快照）',
+    daily_capacity_threshold INT COMMENT '签发时日承载阈值（快照）',
+    load_rate DECIMAL(10,2) COMMENT '签发时承载率（快照，百分比）',
+    capacity_reached TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否压到日承载：当前数≥阈值',
+    over_capacity TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否超过日承载：当前数>阈值',
+    out_of_range_count INT NOT NULL DEFAULT 0 COMMENT '系数越界条数（快照）',
+    pending_transfer_count INT NOT NULL DEFAULT 0 COMMENT '次日须跟进待批划转明细条数（快照）',
+    pending_application_count INT NOT NULL DEFAULT 0 COMMENT '次日须跟进待批划转申请单数（快照）',
+    pending_transfer_snapshot TEXT COMMENT '待批划转明细快照（JSON）',
+    handover_remark VARCHAR(512) COMMENT '交班备注',
+    operator VARCHAR(32) NOT NULL COMMENT '签发人（交班调度员）',
+    issue_time DATETIME NOT NULL COMMENT '签发时间',
+    status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待确认 CONFIRMED-已确认',
+    follow_up_note VARCHAR(512) COMMENT '跟进说明（接班确认时必填）',
+    confirmer VARCHAR(32) COMMENT '确认人（接班调度员）',
+    confirm_time DATETIME COMMENT '确认时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_line_review_date (line_id, review_date),
+    INDEX idx_status (status),
+    INDEX idx_issue_time (issue_time),
+    FOREIGN KEY (line_id) REFERENCES production_line(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='夜班承载复核单表';
+
 INSERT IGNORE INTO production_line
     (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max) VALUES
 ('LINE-001', '装配一号线', '精密小型件装配线', 2, 0.2000, 1.0000),

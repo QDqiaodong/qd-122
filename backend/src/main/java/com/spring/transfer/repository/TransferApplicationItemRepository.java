@@ -37,6 +37,16 @@ public interface TransferApplicationItemRepository extends JpaRepository<Transfe
            "WHERE i.toLineId = :toLineId AND i.status = :status")
     long countDistinctApplicationByToLineIdAndStatus(Long toLineId, ItemStatus status);
 
+    /**
+     * 夜班复核单待批划转快照：流向指定产线的待审批明细，关联申请单取单号/申请人/原因/加急标记，
+     * 按加急优先、申请时间倒序排列，供接班人逐条跟进。
+     */
+    @Query("SELECT i, a FROM TransferApplicationItem i, TransferApplication a " +
+           "WHERE i.applicationId = a.id AND i.toLineId = :toLineId AND i.status = :status " +
+           "ORDER BY a.urgent DESC, a.applyTime DESC, i.id ASC")
+    List<Object[]> findPendingDetailWithApplication(@org.springframework.data.repository.query.Param("toLineId") Long toLineId,
+                                                    @org.springframework.data.repository.query.Param("status") ItemStatus status);
+
     /** 轻量预读（不加载实体），拿到所属申请单等信息后再加锁 */
     @Query("SELECT i.applicationId AS applicationId, i.springCode AS springCode, i.status AS status, i.approver AS approver " +
            "FROM TransferApplicationItem i WHERE i.id = :id")

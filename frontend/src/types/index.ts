@@ -394,6 +394,87 @@ export interface ItemProcessResult {
   message: string
 }
 
+// ---------------------------------------------------------------------
+// 夜班承载复核单
+// ---------------------------------------------------------------------
+
+/** 复核单状态：PENDING-待确认 CONFIRMED-已确认（确认后数字锁定不可改） */
+export type ReviewStatus = 'PENDING' | 'CONFIRMED'
+
+/** 复核单上「次日必须跟进的待批划转」单条明细（签发时快照） */
+export interface PendingTransferItem {
+  applicationId: number
+  applicationNo: string
+  applicant: string
+  springCode: string
+  model: string
+  elasticCoefficient: number
+  fromLineName: string
+  reason: string
+  applyTime?: string | null
+  urgent: boolean
+}
+
+/** 夜班承载复核单（数字均为签发时点快照） */
+export interface NightLoadReview {
+  id: number
+  reviewNo: string
+  reviewDate: string
+  lineId: number
+  lineCode: string
+  lineName: string
+  /** 当前归属弹簧数（快照） */
+  springCount: number
+  dailyCapacityThreshold?: number | null
+  loadRate?: number | null
+  /** 是否压到日承载：当前数 ≥ 阈值 */
+  capacityReached: boolean
+  /** 是否超过日承载：当前数 > 阈值 */
+  overCapacity: boolean
+  /** 系数越界条数（快照） */
+  outOfRangeCount: number
+  /** 次日须跟进待批划转明细条数（快照） */
+  pendingTransferCount: number
+  /** 次日须跟进待批划转申请单数（快照） */
+  pendingApplicationCount: number
+  pendingTransferSnapshot?: string | null
+  handoverRemark?: string | null
+  operator: string
+  issueTime: string
+  status: ReviewStatus
+  followUpNote?: string | null
+  confirmer?: string | null
+  confirmTime?: string | null
+  createTime: string
+  updateTime: string
+}
+
+/** 复核单详情：本体 + 反序列化后的待批划转快照明细 */
+export interface NightLoadReviewDetail {
+  review: NightLoadReview
+  pendingTransfers: PendingTransferItem[]
+}
+
+/** 签发复核单请求 */
+export interface CreateReviewRequest {
+  lineId: number
+  operator: string
+  handoverRemark?: string
+}
+
+/** 确认复核单请求：跟进说明必填，不写不能确认 */
+export interface ConfirmReviewRequest {
+  confirmer: string
+  followUpNote: string
+}
+
+/** 接班门禁：无待确认复核单才放行新划转 */
+export interface ReviewGuard {
+  allowed: boolean
+  pendingCount: number
+  pendingReviews: NightLoadReviewDetail[]
+}
+
 export interface PageResponse<T> {
   content: T[]
   totalElements: number

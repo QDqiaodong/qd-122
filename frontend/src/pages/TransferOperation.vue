@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
-import { springApi, applicationApi } from '@/api'
+import { springApi, applicationApi, nightReviewApi } from '@/api'
 import type { SpringArchive, TransferApplication, ApplicationStatus, SubmitApplicationRequest } from '@/types'
 import {
   GitBranch,
@@ -16,14 +17,34 @@ import {
   Cog,
   Ban,
   OctagonPause,
+  AlertTriangle,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
+const router = useRouter()
 const loading = ref(false)
 const submitting = ref(false)
 const springs = ref<SpringArchive[]>([])
 const selectedIds = ref<number[]>([])
 const recentApplications = ref<TransferApplication[]>([])
+
+/** 接班门禁：未确认昨夜全部夜班承载复核单时禁止提交新划转（后端提交时也会强校验） */
+const reviewBlocked = ref(false)
+const reviewPendingCount = ref(0)
+
+async function fetchReviewGuard() {
+  try {
+    const response = await nightReviewApi.guard()
+    reviewBlocked.value = !response.data.allowed
+    reviewPendingCount.value = response.data.pendingCount
+  } catch {
+    // 门禁查询失败不阻断页面，提交时后端仍会拦截
+  }
+}
+
+function goNightReview() {
+  router.push({ name: 'NightReview', query: { status: 'PENDING' } })
+}
 
 const searchForm = reactive({
   lineId: null as number | null,
@@ -122,6 +143,16 @@ function toggleSelect(id: number) {
 }
 
 async function handleSubmitApplication() {
+  // 接班门禁：接班人须先确认昨夜复核单才能提交新划转
+  if (reviewBlocked.value) {
+    ElMessage.warning({
+      message: `您还有 ${reviewPendingCount.value} 张夜班承载复核单未确认，请先确认后再提交划转`,
+      duration: 6000,
+      showClose: true,
+    })
+    goNightReview()
+    return
+  }
   if (selectedIds.value.length === 0) {
     ElMessage.warning('请选择要划转的弹簧')
     return
@@ -200,11 +231,33 @@ onMounted(async () => {
   await lineStore.fetchLines()
   fetchSprings()
   fetchRecentApplications()
+  fetchReviewGuard()
 })
 </script>
 
 <template>
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
+  <div class="space-y-6 animate-fade-in">
+    <!-- 接班门禁：未确认昨夜复核单时置顶拦截，确认后自动放行 -->
+    <div
+      v-if="reviewBlocked"
+      class="card-industrial p-4 border-l-4 border-amber-500 bg-amber-50 flex items-start gap-3"
+    >
+      <AlertTriangle class="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+      <div class="flex-1">
+        <div class="font-bold text-amber-800">接班交接未完成：{{ reviewPendingCount }} 张夜班承载复核单待确认</div>
+        <p class="text-sm text-amber-700 mt-1">
+          接班人须先打开看板确认昨夜全部复核单（填写跟进说明）后，才能提交新的划转申请。
+        </p>
+      </div>
+      <button
+        class="px-3 py-1.5 rounded-industrial bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-colors"
+        @click="goNightReview"
+      >
+        去确认
+      </button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in">
     <div class="lg:col-span-2 space-y-6">
       <div class="card-industrial p-4">
         <div class="flex items-center gap-2 mb-4">
@@ -435,7 +488,7 @@ onMounted(async () => {
                 <div class="pt-2 mt-2 border-t border-industrial-200">
                   <button
                     class="w-full btn-industrial-accent"
-                    :disabled="submitting || selectedIds.length === 0 || !applyForm.toLineId || !applyForm.applicant || !applyForm.reason"
+                    :disabled="submitting || reviewBlocked || selectedIds.length === 0 || !applyForm.toLineId || !applyForm.applicant || !applyForm.reason"
                     @click="handleSubmitApplication"
                   >
                     <Send class="w-4 h-4 inline mr-1" />
@@ -537,5 +590,6 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+  </div>
   </div>
 </template>

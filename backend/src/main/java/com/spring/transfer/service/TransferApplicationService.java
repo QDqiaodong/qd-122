@@ -52,6 +52,8 @@ public class TransferApplicationService {
     private final PlatformTransactionManager transactionManager;
     private final LineLoadService lineLoadService;
     private final LoadAlertService loadAlertService;
+    /** 接班门禁：提交新划转前必须先确认昨夜复核单；@Lazy 规避循环依赖 */
+    private final NightLoadReviewService nightLoadReviewService;
 
     public TransferApplicationService(TransferApplicationRepository applicationRepository,
                                       TransferApplicationItemRepository itemRepository,
@@ -61,7 +63,8 @@ public class TransferApplicationService {
                                       TransferRecordRepository transferRecordRepository,
                                       PlatformTransactionManager transactionManager,
                                       @Lazy LineLoadService lineLoadService,
-                                      @Lazy LoadAlertService loadAlertService) {
+                                      @Lazy LoadAlertService loadAlertService,
+                                      @Lazy NightLoadReviewService nightLoadReviewService) {
         this.applicationRepository = applicationRepository;
         this.itemRepository = itemRepository;
         this.logRepository = logRepository;
@@ -71,6 +74,7 @@ public class TransferApplicationService {
         this.transactionManager = transactionManager;
         this.lineLoadService = lineLoadService;
         this.loadAlertService = loadAlertService;
+        this.nightLoadReviewService = nightLoadReviewService;
     }
 
     public Page<TransferApplication> findAll(ApplicationStatus status, String keyword, Boolean halted,
@@ -136,6 +140,8 @@ public class TransferApplicationService {
      */
     @Transactional
     public TransferApplication submit(SubmitApplicationRequest request) {
+        // 接班门禁：接班人打开看板确认昨夜全部夜班承载复核单后，才能提交新划转
+        nightLoadReviewService.assertNoPendingReviewForTransfer();
         ProductionLine toLine = productionLineRepository.findById(request.getToLineId())
                 .orElseThrow(() -> new RuntimeException("目标产线不存在"));
         // 停台校验：临时停台期间该产线不能作为划转接收方，提示中给出停台原因与预计复台时间

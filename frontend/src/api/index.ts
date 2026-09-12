@@ -30,6 +30,11 @@ import type {
   TransferSimulation,
   SaveSimulationRequest,
   AdoptSimulationRequest,
+  ReviewStatus,
+  NightLoadReviewDetail,
+  CreateReviewRequest,
+  ConfirmReviewRequest,
+  ReviewGuard,
 } from '@/types'
 
 const request = axios.create({
@@ -147,4 +152,20 @@ export const simulationApi = {
     request.post<unknown, ApiResponse<TransferSimulation>>(`/simulations/${id}/adopt`, data),
   discard: (id: number) =>
     request.post<unknown, ApiResponse<TransferSimulation>>(`/simulations/${id}/discard`),
+}
+
+export const nightReviewApi = {
+  /** 复核单列表，可按 PENDING-待确认 / CONFIRMED-已确认 筛选 */
+  list: (params?: { status?: ReviewStatus; page?: number; size?: number }) =>
+    request.get<unknown, ApiResponse<PageResponse<NightLoadReviewDetail>>>('/night-reviews', { params }),
+  detail: (id: number) =>
+    request.get<unknown, ApiResponse<NightLoadReviewDetail>>(`/night-reviews/${id}`),
+  /** 接班门禁：是否仍有待确认复核单 */
+  guard: () => request.get<unknown, ApiResponse<ReviewGuard>>('/night-reviews/guard'),
+  /** 交班调度员按产线签发复核单 */
+  issue: (data: CreateReviewRequest) =>
+    request.post<unknown, ApiResponse<NightLoadReviewDetail>>('/night-reviews', data),
+  /** 接班调度员确认（跟进说明必填） */
+  confirm: (id: number, data: ConfirmReviewRequest) =>
+    request.post<unknown, ApiResponse<NightLoadReviewDetail>>(`/night-reviews/${id}/confirm`, data),
 }

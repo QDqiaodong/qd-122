@@ -13,6 +13,7 @@ import {
   X,
   Factory,
   OctagonPause,
+  MoonStar,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -26,6 +27,7 @@ const navItems = [
   { path: '/transfer', name: '产线划转申请', icon: GitBranch },
   { path: '/simulation', name: '工序调拨模拟', icon: FlaskConical },
   { path: '/approval', name: '划转申请审批', icon: ClipboardCheck },
+  { path: '/night-review', name: '夜班承载复核', icon: MoonStar },
   { path: '/trace', name: '划转轨迹查询', icon: History },
 ]
 
