@@ -518,7 +518,7 @@ public class TransferApplicationService {
         applicationRepository.updateStatus(applicationId, status);
 
         // 申请单结案（全部通过/全部驳回）后加急标记自动解除并留痕，
-        // 保证加急单始终对应待审批单据，看板「加急待批数」与列表排序刷新后一致
+        // 保证加急单始终对应仍有待批行的单据，看板「加急待批」按剩余待批行计数，与审批台刷新后一致
         if (status == ApplicationStatus.APPROVED || status == ApplicationStatus.REJECTED) {
             int cleared = applicationRepository.clearUrgentIfMarked(applicationId);
             if (cleared > 0) {

@@ -9,6 +9,7 @@ import com.spring.transfer.dto.LoadAlertEventResponse;
 import com.spring.transfer.dto.LoadStatus;
 import com.spring.transfer.dto.SimulationEstimateResponse;
 import com.spring.transfer.common.ApplicationStatus;
+import com.spring.transfer.common.ItemStatus;
 import com.spring.transfer.entity.LoadAlertEvent;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
@@ -17,6 +18,7 @@ import com.spring.transfer.repository.ProductionLineRepository;
 import com.spring.transfer.repository.SpringArchiveRepository;
 import com.spring.transfer.repository.TransferApplicationRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ import java.util.stream.Collectors;
  *
  * 看板汇总数字与分组列表基于同一次计算结果组装，保证统计与列表一致。
  */
+@Slf4j
 @Service
 public class LineLoadService {
     /** 划转趋势统计窗口（天） */
@@ -93,14 +96,73 @@ public class LineLoadService {
         response.setOverloadCount(grouped.getOrDefault(LoadStatus.OVERLOAD, List.of()).size());
         response.setPendingAlertCount(alertCounts.get("pending"));
         response.setOpenAlertCount(alertCounts.get("open"));
-        // 加急待批数与审批台同源：加急标记持久化在申请单上，结案自动解除，刷新后统计与列表一致
-        response.setUrgentPendingCount((int) applicationRepository.countByUrgentTrueAndStatusIn(
-                List.of(ApplicationStatus.PENDING, ApplicationStatus.PARTIAL)));
+        fillUrgentPendingCount(response);
         response.setLines(all);
         response.setNormalLines(grouped.getOrDefault(LoadStatus.NORMAL, List.of()));
         response.setWarningLines(grouped.getOrDefault(LoadStatus.WARNING, List.of()));
         response.setOverloadLines(grouped.getOrDefault(LoadStatus.OVERLOAD, List.of()));
         return response;
+    }
+
+    /**
+     * 加急待批统计：统一按「加急申请单下剩余待审批明细行」计数，与审批台逐行看到的加急量同一口径。
+     * <p>部分处理的加急单只计尚未处理的明细行，已通过/已驳回的行不再占用加急名额。
+     * 每次刷新都以明细表为准重新汇总，并对表头（加急标记/状态）与明细实际进度不一致的异常数据
+     * 给出明确原因，而不是静默展示对不上的数字：
+     * <ul>
+     *   <li>加急标记残留：仍带加急标记却已无待批行（通常是结案自动解除失败）；</li>
+     *   <li>表头状态漂移：剩余待批行数量与表头状态（待审批/部分处理/已结案）矛盾。</li>
+     * </ul>
+     */
+    private void fillUrgentPendingCount(LineLoadBoardResponse response) {
+        List<TransferApplicationRepository.UrgentPendingStat> stats =
+                applicationRepository.findUrgentPendingStats(ItemStatus.PENDING);
+
+        int pendingItemTotal = 0;
+        int applicationTotal = 0;
+        int staleCount = 0;
+        List<Long> staleIds = new ArrayList<>();
+        List<Long> driftedIds = new ArrayList<>();
+        for (TransferApplicationRepository.UrgentPendingStat stat : stats) {
+            long pending = stat.getPendingItemCount() == null ? 0L : stat.getPendingItemCount();
+            if (pending > 0) {
+                pendingItemTotal += (int) pending;
+                applicationTotal++;
+                // 有待批行，表头却已结案：审批台仍能看到这些行，但状态汇总明显异常
+                if (stat.getStatus() == ApplicationStatus.APPROVED
+                        || stat.getStatus() == ApplicationStatus.REJECTED) {
+                    driftedIds.add(stat.getApplicationId());
+                }
+            } else {
+                // 无待批行仍挂着加急标记：按明细口径本不该再占加急名额（历史整单口径会把它计为 1）
+                staleCount++;
+                staleIds.add(stat.getApplicationId());
+            }
+        }
+
+        response.setUrgentPendingCount(pendingItemTotal);
+        response.setUrgentPendingApplicationCount(applicationTotal);
+        response.setUrgentStaleCount(staleCount);
+
+        List<String> reasons = new ArrayList<>();
+        if (staleCount > 0) {
+            reasons.add(String.format(
+                    "%d 张加急申请单已无剩余待审批明细行却仍挂着加急标记（申请单ID：%s），"
+                            + "其已处理行不再占用加急名额；该标记通常应在结案时自动解除，请联系管理员核查自动解除日志",
+                    staleCount, staleIds));
+        }
+        if (!driftedIds.isEmpty()) {
+            reasons.add(String.format(
+                    "%d 张加急申请单表头状态已结案但仍存在待审批明细行（申请单ID：%s），"
+                            + "看板已按剩余待批行计入，申请单状态汇总需重新校正",
+                    driftedIds.size(), driftedIds));
+        }
+        boolean aligned = reasons.isEmpty();
+        response.setUrgentPendingAligned(aligned);
+        response.setUrgentPendingMismatchReasons(reasons);
+        if (!aligned) {
+            log.warn("加急待批计数与审批台口径校验未通过：{}", String.join("；", reasons));
+        }
     }
 
     public Optional<LineLoadDetailResponse> getLineDetail(Long lineId) {

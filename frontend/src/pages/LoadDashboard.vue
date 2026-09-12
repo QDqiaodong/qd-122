@@ -83,8 +83,13 @@ const totalSprings = computed(() => board.value?.totalSprings ?? 0)
 const pendingAlertCount = computed(() => board.value?.pendingAlertCount ?? 0)
 const openAlertCount = computed(() => board.value?.openAlertCount ?? 0)
 const urgentPendingCount = computed(() => board.value?.urgentPendingCount ?? 0)
+/** 剩余待批行数对应的加急申请单数；后端未返回时（旧缓存）回退为 0，以行数口径为准 */
+const urgentPendingApplicationCount = computed(() => board.value?.urgentPendingApplicationCount ?? 0)
+/** 看板计数与审批台剩余待批口径是否对齐；未返回校验结果时按已对齐处理 */
+const urgentPendingAligned = computed(() => board.value?.urgentPendingAligned ?? true)
+const urgentPendingMismatchReasons = computed(() => board.value?.urgentPendingMismatchReasons ?? [])
 
-/** 跳转审批台并只看加急单：统计数字与审批台列表同源，点击即可核对 */
+/** 跳转审批台并只看加急单：看板数字按剩余待批行计，与审批台逐行口径同源，点击即可核对 */
 function goUrgentApprovals() {
   router.push({ name: 'TransferApproval', query: { urgent: 'true' } })
 }
@@ -358,12 +363,19 @@ onMounted(fetchBoard)
 
       <div
         class="card-industrial p-4 border-l-4 cursor-pointer transition-shadow hover:shadow-industrial-hover"
-        :class="urgentPendingCount > 0 ? 'border-l-red-600 bg-red-50/40' : 'border-l-industrial-300'"
-        title="点击查看加急待审批申请单"
+        :class="urgentPendingCount > 0 || !urgentPendingAligned ? 'border-l-red-600 bg-red-50/40' : 'border-l-industrial-300'"
+        :title="`按剩余待审批明细行计数，与审批台口径一致；共 ${urgentPendingApplicationCount} 张加急申请单`"
         @click="goUrgentApprovals"
       >
         <div class="flex items-center justify-between">
-          <span class="text-sm text-industrial-500">加急待批</span>
+          <span class="flex items-center gap-1 text-sm text-industrial-500">
+            加急待批
+            <AlertTriangle
+              v-if="!urgentPendingAligned"
+              class="w-4 h-4 text-red-600 cursor-help"
+              :title="urgentPendingMismatchReasons.join('\n')"
+            />
+          </span>
           <Flame class="w-5 h-5" :class="urgentPendingCount > 0 ? 'text-red-600' : 'text-industrial-300'" />
         </div>
         <div
@@ -372,7 +384,19 @@ onMounted(fetchBoard)
         >
           {{ urgentPendingCount }}
         </div>
-        <div class="text-xs text-industrial-400 mt-1">调度员加急的待审批划转申请</div>
+        <div class="text-xs text-industrial-400 mt-1">
+          剩余待批 {{ urgentPendingCount }} 行 / {{ urgentPendingApplicationCount }} 张加急单
+        </div>
+        <!-- 对不齐时在卡片下方直接给出明确原因，刷新看板即按明细行重新校验 -->
+        <ul
+          v-if="!urgentPendingAligned"
+          class="mt-2 pl-4 list-disc text-xs text-red-600 space-y-0.5 cursor-help"
+          :title="urgentPendingMismatchReasons.join('\n')"
+        >
+          <li v-for="(reason, index) in urgentPendingMismatchReasons" :key="index" class="line-clamp-2">
+            {{ reason }}
+          </li>
+        </ul>
       </div>
 
       <div class="card-industrial p-4 col-span-2 lg:col-span-1">

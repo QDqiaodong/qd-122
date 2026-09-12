@@ -47,7 +47,8 @@ import static org.mockito.Mockito.when;
  * 划转申请加急单测：
  * 调度员可对待审批（含部分处理）申请标记加急并写原因，取消加急须写说明；
  * 重复加急、结案后加急、未加急取消均给出明确原因；
- * 申请单结案时加急标记自动解除并留痕；看板统计加急待批数。
+ * 申请单结案时加急标记自动解除并留痕；看板「加急待批数」按加急申请单的剩余待审批明细行计数，
+ * 与审批台逐行口径一致，并对加急标记残留/表头状态漂移等对不齐场景给出明确原因。
  */
 @ExtendWith(MockitoExtension.class)
 class TransferApplicationUrgentTest {
@@ -307,20 +308,86 @@ class TransferApplicationUrgentTest {
     }
 
     @Test
-    void boardCountsUrgentPendingApplications() {
-        // 看板「加急待批」与审批台同源：统计加急且待审批/部分处理的申请单数
+    void boardCountsUrgentPendingByRemainingItemRows() {
+        // 看板「加急待批」与审批台同口径：按加急申请单的剩余待审批明细行计数。
+        // 加急单A剩2行待批、部分处理加急单B剩3行待批 → 共 5 行 / 2 张加急单；
+        // 已处理行不再占用加急名额，计数对齐无异常原因
         LineLoadService boardService = new LineLoadService(
                 productionLineRepository, springArchiveRepository, transferRecordRepository,
                 applicationRepository, loadAlertService);
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
-        when(applicationRepository.countByUrgentTrueAndStatusIn(
-                List.of(ApplicationStatus.PENDING, ApplicationStatus.PARTIAL))).thenReturn(3L);
+        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(List.of(
+                urgentStat(10L, "TA20260912000100", ApplicationStatus.PENDING, 2L),
+                urgentStat(11L, "TA20260912000101", ApplicationStatus.PARTIAL, 3L)));
 
         LineLoadBoardResponse board = boardService.getBoard();
 
-        assertEquals(3, board.getUrgentPendingCount());
+        assertEquals(5, board.getUrgentPendingCount());
+        assertEquals(2, board.getUrgentPendingApplicationCount());
+        assertEquals(0, board.getUrgentStaleCount());
+        assertTrue(board.getUrgentPendingAligned());
+        assertTrue(board.getUrgentPendingMismatchReasons().isEmpty());
+    }
+
+    @Test
+    void boardReportsStaleUrgentFlagWhenNoPendingItemRemains() {
+        // 异常场景：申请单已结案且加急标记未自动解除（仍 urgent=true、剩余待批 0 行）。
+        // 剩余待批行口径下该单不再占用加急名额（计 0 行），同时必须给出明确对不齐原因
+        LineLoadService boardService = new LineLoadService(
+                productionLineRepository, springArchiveRepository, transferRecordRepository,
+                applicationRepository, loadAlertService);
+        when(springArchiveRepository.findAll()).thenReturn(List.of());
+        when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
+        when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
+        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(List.of(
+                urgentStat(20L, "TA20260912000102", ApplicationStatus.APPROVED, 0L)));
+
+        LineLoadBoardResponse board = boardService.getBoard();
+
+        assertEquals(0, board.getUrgentPendingCount());
+        assertEquals(0, board.getUrgentPendingApplicationCount());
+        assertEquals(1, board.getUrgentStaleCount());
+        assertFalse(board.getUrgentPendingAligned());
+        assertEquals(1, board.getUrgentPendingMismatchReasons().size());
+        String reason = board.getUrgentPendingMismatchReasons().get(0);
+        assertTrue(reason.contains("加急标记"));
+        assertTrue(reason.contains("20"));
+    }
+
+    @Test
+    void boardReportsHeaderStatusDriftWhenPendingItemsExistOnClosedApplication() {
+        // 异常场景：表头已「全部通过」却仍有 2 行待批明细（表头状态与明细进度漂移）。
+        // 看板仍按剩余待批行计入（与审批台逐行看到的量一致），并明确指出状态需校正
+        LineLoadService boardService = new LineLoadService(
+                productionLineRepository, springArchiveRepository, transferRecordRepository,
+                applicationRepository, loadAlertService);
+        when(springArchiveRepository.findAll()).thenReturn(List.of());
+        when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
+        when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
+        when(applicationRepository.findUrgentPendingStats(ItemStatus.PENDING)).thenReturn(List.of(
+                urgentStat(30L, "TA20260912000103", ApplicationStatus.APPROVED, 2L)));
+
+        LineLoadBoardResponse board = boardService.getBoard();
+
+        assertEquals(2, board.getUrgentPendingCount());
+        assertEquals(1, board.getUrgentPendingApplicationCount());
+        assertFalse(board.getUrgentPendingAligned());
+        String reason = board.getUrgentPendingMismatchReasons().get(0);
+        assertTrue(reason.contains("已结案"));
+        assertTrue(reason.contains("30"));
+    }
+
+    private TransferApplicationRepository.UrgentPendingStat urgentStat(
+            Long applicationId, String applicationNo, ApplicationStatus status, long pendingItemCount) {
+        TransferApplicationRepository.UrgentPendingStat stat =
+                mock(TransferApplicationRepository.UrgentPendingStat.class);
+        when(stat.getApplicationId()).thenReturn(applicationId);
+        when(stat.getApplicationNo()).thenReturn(applicationNo);
+        when(stat.getStatus()).thenReturn(status);
+        when(stat.getPendingItemCount()).thenReturn(pendingItemCount);
+        return stat;
     }
 
     private TransferApplicationLog captureLastLog() {

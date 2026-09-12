@@ -96,8 +96,19 @@ export interface LineLoadBoard {
   pendingAlertCount: number
   /** 未关闭（待处理 + 处置中）的告警事件数 */
   openAlertCount: number
-  /** 加急且仍待审批（待审批/部分处理）的划转申请单数 */
+  /**
+   * 加急待批数：加急申请单下剩余待审批明细行之和（与审批台逐行口径一致）。
+   * 部分处理单的已处理行不再占用加急名额
+   */
   urgentPendingCount: number
+  /** 仍含剩余待批行的加急申请单数（审批台「仅加急」列表可见单量） */
+  urgentPendingApplicationCount: number
+  /** 仍带加急标记但已无剩余待批行的残留申请单数 */
+  urgentStaleCount: number
+  /** 看板计数与审批台剩余待批口径是否一致；false 时以 urgentPendingMismatchReasons 说明原因 */
+  urgentPendingAligned: boolean
+  /** 加急待批计数对不齐的明确原因 */
+  urgentPendingMismatchReasons: string[]
   lines: LineLoadStats[]
   normalLines: LineLoadStats[]
   warningLines: LineLoadStats[]

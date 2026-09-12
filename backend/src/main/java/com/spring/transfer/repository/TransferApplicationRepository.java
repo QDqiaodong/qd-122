@@ -1,6 +1,7 @@
 package com.spring.transfer.repository;
 
 import com.spring.transfer.common.ApplicationStatus;
+import com.spring.transfer.common.ItemStatus;
 import com.spring.transfer.entity.TransferApplication;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -9,8 +10,10 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -37,8 +40,26 @@ public interface TransferApplicationRepository extends JpaRepository<TransferApp
                                               int urgentFilter,
                                               Pageable pageable);
 
-    /** 看板统计：加急且仍待审批（待审批/部分处理）的申请单数 */
-    long countByUrgentTrueAndStatusIn(Collection<ApplicationStatus> statuses);
+    /**
+     * 看板加急待批统计行：每张仍带加急标记的申请单一行，含表头状态与其剩余待审批明细数。
+     * 看板与审批台统一按「剩余待批行数」计数：只有加急申请单下仍处于待审批的明细才占用加急名额，
+     * 已处理（通过/驳回）的明细不再计入。
+     */
+    interface UrgentPendingStat {
+        Long getApplicationId();
+        String getApplicationNo();
+        ApplicationStatus getStatus();
+        Long getPendingItemCount();
+    }
+
+    /**
+     * 看板统计：逐张返回仍带加急标记申请单的表头状态与剩余待审批明细数（子查询按行计数）。
+     * 以明细行（而非整单）为统计口径，部分处理单已处理行不再占用加急名额。
+     */
+    @Query("SELECT a.id AS applicationId, a.applicationNo AS applicationNo, a.status AS status, " +
+           "(SELECT COUNT(i) FROM TransferApplicationItem i WHERE i.applicationId = a.id AND i.status = :pendingStatus) AS pendingItemCount " +
+           "FROM TransferApplication a WHERE a.urgent = true")
+    List<UrgentPendingStat> findUrgentPendingStats(@Param("pendingStatus") ItemStatus pendingStatus);
 
     /**
      * 申请单结案（全部通过/全部驳回）时自动解除加急标记，
