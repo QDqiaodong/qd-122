@@ -153,6 +153,12 @@ interface ApprovalRequest {
   approver: string;
   reason?: string;
 }
+
+// 加急/取消加急请求（标记加急填加急原因，取消加急填取消说明，均必填）
+interface UrgentRequest {
+  operator: string;  // 调度员
+  reason: string;    // 加急原因 / 取消说明
+}
 ```
 
 ### 4.3 接口清单
@@ -172,10 +178,12 @@ interface ApprovalRequest {
 | GET | `/api/springs/{id}/trace` | 查询弹簧划转轨迹 | path: id | `TransferRecord[]` |
 | GET | `/api/transfers` | 分页查询划转流水 | query: page, size, springId, lineId | `Page<TransferRecord>` |
 | POST | `/api/transfer-applications` | 提交划转申请（记录申请原因/申请人/时间） | body: SubmitApplicationRequest | `TransferApplication` |
-| GET | `/api/transfer-applications` | 分页查询划转申请 | query: page, size, status, halted(目标产线是否停台), keyword | `Page<TransferApplication>` |
+| GET | `/api/transfer-applications` | 分页查询划转申请（默认加急优先、申请时间倒序） | query: page, size, status, halted(目标产线是否停台), urgent(是否加急), keyword | `Page<TransferApplication>` |
 | GET | `/api/transfer-applications/{id}` | 申请详情（弹簧明细+审批状态+操作记录） | path: id | `ApplicationDetailResponse` |
 | POST | `/api/transfer-applications/approve` | 逐条/批量审批通过（通过后更新归属并生成流水） | body: ApprovalRequest | `ItemProcessResult[]` |
 | POST | `/api/transfer-applications/reject` | 逐条/批量驳回（驳回原因必填） | body: ApprovalRequest | `ItemProcessResult[]` |
+| POST | `/api/transfer-applications/{id}/urgent` | 调度员标记加急（加急原因必填；已结案单据不能再加急，重复加急给出明确原因） | path: id, body: UrgentRequest | `TransferApplication` |
+| POST | `/api/transfer-applications/{id}/cancel-urgent` | 取消加急（取消说明必填，记入操作记录） | path: id, body: UrgentRequest | `TransferApplication` |
 | GET | `/api/specs/elastic-force` | 从Redis获取弹力规格参数 | query: min, max | `List<Double>` |
 
 ## 5. 后端架构分层

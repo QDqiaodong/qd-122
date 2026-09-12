@@ -24,6 +24,8 @@ import {
   ChevronRight,
   RefreshCw,
   OctagonPause,
+  Flame,
+  FlameKindling,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -41,7 +43,7 @@ const loading = ref(false)
 const applications = ref<TransferApplication[]>([])
 
 // 筛选条件在页面刷新后仍需保留：以路由 query 为持久化载体，刷新（F5）后从 URL 还原
-function parseHalted(value: unknown): boolean | null {
+function parseBooleanFlag(value: unknown): boolean | null {
   if (value === 'true') return true
   if (value === 'false') return false
   return null
@@ -51,7 +53,9 @@ const searchForm = reactive({
   status: parseStatus(route.query.status),
   keyword: typeof route.query.keyword === 'string' ? route.query.keyword : '',
   // 按目标产线是否停台筛选：true-仅停台 false-仅未停台 null-全部
-  halted: parseHalted(route.query.halted),
+  halted: parseBooleanFlag(route.query.halted),
+  // 按是否加急筛选：true-仅加急 false-仅未加急 null-全部
+  urgent: parseBooleanFlag(route.query.urgent),
 })
 
 const pagination = reactive({
@@ -66,6 +70,7 @@ function syncQuery() {
   if (searchForm.status) query.status = searchForm.status
   if (searchForm.keyword.trim()) query.keyword = searchForm.keyword.trim()
   if (searchForm.halted !== null) query.halted = String(searchForm.halted)
+  if (searchForm.urgent !== null) query.urgent = String(searchForm.urgent)
   if (pagination.page > 0) query.page = String(pagination.page + 1)
   router.replace({ name: 'TransferApproval', query })
 }
@@ -82,6 +87,15 @@ const processing = ref(false)
 const rejectDialogVisible = ref(false)
 const rejectReason = ref('')
 const rejectTargetIds = ref<number[]>([])
+
+// 加急/取消加急对话框：调度员标记加急填原因，取消加急填说明
+const URGENT_OPERATOR_KEY = 'transfer-urgent-operator'
+const urgentDialogVisible = ref(false)
+const urgentMode = ref<'mark' | 'cancel'>('mark')
+const urgentTarget = ref<TransferApplication | null>(null)
+const urgentOperator = ref('')
+const urgentReason = ref('')
+const urgentSaving = ref(false)
 
 const appStatusMap: Record<ApplicationStatus, { text: string; class: string }> = {
   PENDING: { text: '待审批', class: 'bg-amber-100 text-amber-700' },
@@ -111,6 +125,7 @@ async function fetchApplications() {
       status: searchForm.status ?? undefined,
       keyword: searchForm.keyword.trim() || undefined,
       halted: searchForm.halted ?? undefined,
+      urgent: searchForm.urgent ?? undefined,
       page: pagination.page,
       size: pagination.size,
     })
@@ -139,6 +154,7 @@ function handleReset() {
   searchForm.status = null
   searchForm.keyword = ''
   searchForm.halted = null
+  searchForm.urgent = null
   pagination.page = 0
   syncQuery()
   fetchApplications()
@@ -298,16 +314,94 @@ async function refreshAfterProcess() {
   fetchApplications()
 }
 
+/** 已结案（全部通过/全部驳回）单据不能再标记加急 */
+function isClosed(app: TransferApplication): boolean {
+  return app.status === 'APPROVED' || app.status === 'REJECTED'
+}
+
+/** 打开加急/取消加急对话框：前端先做一层明显拦截，后端仍会校验并返回明确原因 */
+function openUrgentDialog(app: TransferApplication, mode: 'mark' | 'cancel') {
+  if (mode === 'mark') {
+    if (isClosed(app)) {
+      ElMessage.warning(`该申请单已结案（${appStatusMap[app.status].text}），不能再标记加急`)
+      return
+    }
+    if (app.urgent) {
+      ElMessage.warning('该申请单已标记加急，请勿重复加急；如需调整可先取消加急后重新标记')
+      return
+    }
+  } else if (!app.urgent) {
+    ElMessage.warning('该申请单未标记加急，无需取消')
+    return
+  }
+  urgentTarget.value = app
+  urgentMode.value = mode
+  urgentOperator.value = localStorage.getItem(URGENT_OPERATOR_KEY) ?? ''
+  urgentReason.value = ''
+  urgentDialogVisible.value = true
+}
+
+async function handleUrgentConfirm() {
+  const app = urgentTarget.value
+  if (!app) return
+  if (!urgentOperator.value.trim()) {
+    ElMessage.warning('请填写调度员姓名')
+    return
+  }
+  if (!urgentReason.value.trim()) {
+    ElMessage.warning(urgentMode.value === 'mark' ? '标记加急必须填写加急原因' : '取消加急必须填写取消说明')
+    return
+  }
+  urgentSaving.value = true
+  try {
+    const payload = { operator: urgentOperator.value.trim(), reason: urgentReason.value.trim() }
+    if (urgentMode.value === 'mark') {
+      await applicationApi.urgent(app.id, payload)
+      ElMessage.success(`申请单 ${app.applicationNo} 已标记加急，将优先展示在审批台`)
+    } else {
+      await applicationApi.cancelUrgent(app.id, payload)
+      ElMessage.success(`申请单 ${app.applicationNo} 已取消加急`)
+    }
+    localStorage.setItem(URGENT_OPERATOR_KEY, urgentOperator.value.trim())
+    urgentDialogVisible.value = false
+    // 加急影响列表排序与看板统计：刷新列表；详情抽屉打开时同步刷新详情（含操作记录）
+    if (detailVisible.value && detail.value && detail.value.application.id === app.id) {
+      await fetchDetail(app.id)
+    }
+    await fetchApplications()
+  } catch (err) {
+    ElMessage.error({
+      message: err instanceof Error ? err.message : '加急操作失败',
+      duration: 6000,
+      showClose: true,
+    })
+  } finally {
+    urgentSaving.value = false
+  }
+}
+
 function logActionText(action: TransferApplicationLog['action']) {
-  return action === 'SUBMIT' ? '提交申请' : action === 'APPROVE' ? '审批通过' : '审批驳回'
+  return (
+    {
+      SUBMIT: '提交申请',
+      APPROVE: '审批通过',
+      REJECT: '审批驳回',
+      URGENT: '标记加急',
+      URGENT_CANCEL: '取消加急',
+    } as Record<TransferApplicationLog['action'], string>
+  )[action]
 }
 
 function logActionClass(action: TransferApplicationLog['action']) {
-  return action === 'SUBMIT'
-    ? 'bg-primary-100 text-primary-700'
-    : action === 'APPROVE'
-      ? 'bg-green-100 text-green-700'
-      : 'bg-red-100 text-red-700'
+  return (
+    {
+      SUBMIT: 'bg-primary-100 text-primary-700',
+      APPROVE: 'bg-green-100 text-green-700',
+      REJECT: 'bg-red-100 text-red-700',
+      URGENT: 'bg-red-100 text-red-700',
+      URGENT_CANCEL: 'bg-industrial-100 text-industrial-600',
+    } as Record<TransferApplicationLog['action'], string>
+  )[action]
 }
 
 function formatTime(time?: string) {
@@ -345,6 +439,14 @@ onMounted(() => {
             <option :value="false">未停台</option>
           </select>
         </div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-industrial-700">加急：</span>
+          <select v-model="searchForm.urgent" class="input-industrial w-32" @change="handleSearch">
+            <option :value="null">全部</option>
+            <option :value="true">仅加急</option>
+            <option :value="false">未加急</option>
+          </select>
+        </div>
         <div class="flex items-center gap-2 flex-1 max-w-md">
           <Search class="w-4 h-4 text-industrial-400" />
           <input
@@ -380,10 +482,21 @@ onMounted(() => {
               v-for="(app, index) in applications"
               :key="app.id"
               class="animate-stagger"
+              :class="{ 'bg-red-50/50': app.urgent }"
               :style="{ animationDelay: `${index * 30}ms` }"
             >
               <td class="font-mono text-sm font-medium text-primary-800">
-                {{ app.applicationNo }}
+                <div class="flex flex-col items-start gap-1">
+                  <span>{{ app.applicationNo }}</span>
+                  <span
+                    v-if="app.urgent"
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 cursor-help"
+                    :title="`加急原因：${app.urgentReason || '未填写'}${app.urgentOperator ? '，加急人：' + app.urgentOperator : ''}${app.urgentTime ? '，加急时间：' + formatTime(app.urgentTime) : ''}`"
+                  >
+                    <Flame class="w-3 h-3" />
+                    加急
+                  </span>
+                </div>
               </td>
               <td>
                 <Users class="w-4 h-4 inline mr-1 text-industrial-400" />
@@ -425,9 +538,29 @@ onMounted(() => {
                 </span>
               </td>
               <td>
-                <button class="btn-industrial-outline text-xs px-3 py-1" @click="openDetail(app)">
-                  详情 / 审批
-                </button>
+                <div class="flex flex-col items-start gap-1.5">
+                  <button class="btn-industrial-outline text-xs px-3 py-1" @click="openDetail(app)">
+                    详情 / 审批
+                  </button>
+                  <button
+                    v-if="app.urgent"
+                    class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-industrial-300 text-industrial-600 hover:bg-industrial-50"
+                    title="取消加急（须填写取消说明）"
+                    @click="openUrgentDialog(app, 'cancel')"
+                  >
+                    <FlameKindling class="w-3.5 h-3.5" />
+                    取消加急
+                  </button>
+                  <button
+                    v-else-if="!isClosed(app)"
+                    class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"
+                    title="标记加急（须填写加急原因），加急单优先展示在审批台"
+                    @click="openUrgentDialog(app, 'mark')"
+                  >
+                    <Flame class="w-3.5 h-3.5" />
+                    加急
+                  </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -495,12 +628,39 @@ onMounted(() => {
               <FileText class="w-4 h-4 inline mr-1 text-primary-600" />
               申请信息
             </h3>
-            <span
-              class="px-2 py-1 rounded text-xs font-medium"
-              :class="appStatusMap[detail.application.status].class"
-            >
-              {{ appStatusMap[detail.application.status].text }}
-            </span>
+            <div class="flex items-center gap-2">
+              <span
+                v-if="detail.application.urgent"
+                class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-700"
+              >
+                <Flame class="w-3.5 h-3.5" />
+                加急单
+              </span>
+              <span
+                class="px-2 py-1 rounded text-xs font-medium"
+                :class="appStatusMap[detail.application.status].class"
+              >
+                {{ appStatusMap[detail.application.status].text }}
+              </span>
+              <button
+                v-if="detail.application.urgent"
+                class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-industrial-300 text-industrial-600 hover:bg-industrial-50"
+                title="取消加急（须填写取消说明）"
+                @click="openUrgentDialog(detail.application, 'cancel')"
+              >
+                <FlameKindling class="w-3.5 h-3.5" />
+                取消加急
+              </button>
+              <button
+                v-else-if="!isClosed(detail.application)"
+                class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"
+                title="标记加急（须填写加急原因），加急单优先展示在审批台"
+                @click="openUrgentDialog(detail.application, 'mark')"
+              >
+                <Flame class="w-3.5 h-3.5" />
+                加急
+              </button>
+            </div>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             <div>
@@ -524,6 +684,20 @@ onMounted(() => {
             <div class="col-span-2 md:col-span-4">
               <div class="text-industrial-400 text-xs mb-1">申请原因</div>
               <div class="text-industrial-700">{{ detail.application.reason }}</div>
+            </div>
+          </div>
+
+          <!-- 加急信息：调度员标记的加急原因/加急人/加急时间 -->
+          <div
+            v-if="detail.application.urgent"
+            class="mt-3 flex items-start gap-2 rounded-industrial border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            <Flame class="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div>
+              加急原因：{{ detail.application.urgentReason || '未填写' }}
+              <span class="text-xs text-red-500 ml-2">
+                加急人 {{ detail.application.urgentOperator || '-' }} · {{ formatTime(detail.application.urgentTime ?? undefined) }}
+              </span>
             </div>
           </div>
 
@@ -746,6 +920,76 @@ onMounted(() => {
           <button class="btn-industrial-outline" @click="rejectDialogVisible = false">取消</button>
           <button class="btn-industrial-accent" :disabled="processing" @click="handleRejectConfirm">
             {{ processing ? '处理中...' : '确认驳回' }}
+          </button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      v-model="urgentDialogVisible"
+      :title="urgentMode === 'mark' ? '标记加急' : '取消加急'"
+      width="480px"
+    >
+      <div v-if="urgentTarget" class="space-y-4">
+        <div class="p-3 bg-industrial-50 rounded-industrial text-sm space-y-1">
+          <div class="flex justify-between">
+            <span class="text-industrial-600">申请单号：</span>
+            <span class="font-mono font-medium text-primary-800">{{ urgentTarget.applicationNo }}</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-industrial-600">目标产线：</span>
+            <span class="font-medium">{{ urgentTarget.toLineName }}</span>
+          </div>
+        </div>
+        <p v-if="urgentMode === 'mark'" class="text-sm text-industrial-600">
+          标记加急后该申请单将优先展示在审批台，并计入看板「加急待批」统计；申请单结案后加急标记自动解除。
+        </p>
+        <p v-else class="text-sm text-industrial-600">
+          取消加急须填写取消说明，取消后该申请单恢复按申请时间排序。
+        </p>
+        <div>
+          <label class="block text-sm font-medium text-industrial-700 mb-1">
+            调度员 <span class="text-red-500">*</span>
+          </label>
+          <input
+            v-model="urgentOperator"
+            type="text"
+            class="input-industrial"
+            placeholder="请输入调度员姓名"
+            maxlength="32"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-industrial-700 mb-1">
+            {{ urgentMode === 'mark' ? '加急原因' : '取消说明' }} <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            v-model="urgentReason"
+            class="input-industrial h-24 resize-none"
+            :placeholder="urgentMode === 'mark' ? '例如：客户催单/产线待料，需优先划转' : '例如：交期已协调，无需加急处理'"
+            maxlength="255"
+          ></textarea>
+        </div>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-3">
+          <button class="btn-industrial-outline" @click="urgentDialogVisible = false">取消</button>
+          <button
+            v-if="urgentMode === 'mark'"
+            class="px-4 py-2 rounded-industrial bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50"
+            :disabled="urgentSaving"
+            @click="handleUrgentConfirm"
+          >
+            <Flame class="w-4 h-4 inline mr-1" />
+            {{ urgentSaving ? '提交中...' : '确认加急' }}
+          </button>
+          <button
+            v-else
+            class="btn-industrial"
+            :disabled="urgentSaving"
+            @click="handleUrgentConfirm"
+          >
+            {{ urgentSaving ? '提交中...' : '确认取消加急' }}
           </button>
         </div>
       </template>

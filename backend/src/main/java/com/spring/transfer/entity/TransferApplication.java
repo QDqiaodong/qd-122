@@ -37,6 +37,22 @@ public class TransferApplication {
     @Column(name = "status", nullable = false, length = 16)
     private ApplicationStatus status = ApplicationStatus.PENDING;
 
+    /** 加急标记：调度员对待审批申请标记加急后审批台优先展示；结案（全部通过/驳回）后自动解除 */
+    @Column(name = "urgent", nullable = false)
+    private boolean urgent = false;
+
+    /** 加急原因（标记加急时必填） */
+    @Column(name = "urgent_reason", length = 255)
+    private String urgentReason;
+
+    /** 加急操作人（调度员） */
+    @Column(name = "urgent_operator", length = 32)
+    private String urgentOperator;
+
+    /** 加急时间 */
+    @Column(name = "urgent_time")
+    private LocalDateTime urgentTime;
+
     @Transient
     private Integer totalCount;
 

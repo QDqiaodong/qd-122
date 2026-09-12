@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { lineLoadApi, loadAlertApi } from '@/api'
 import { useLineStore } from '@/stores/lines'
@@ -38,9 +39,11 @@ import {
   ListChecks,
   OctagonPause,
   PlayCircle,
+  Flame,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
+const router = useRouter()
 const loading = ref(false)
 const board = ref<LineLoadBoard | null>(null)
 
@@ -79,6 +82,12 @@ const totalLines = computed(() => board.value?.totalLines ?? 0)
 const totalSprings = computed(() => board.value?.totalSprings ?? 0)
 const pendingAlertCount = computed(() => board.value?.pendingAlertCount ?? 0)
 const openAlertCount = computed(() => board.value?.openAlertCount ?? 0)
+const urgentPendingCount = computed(() => board.value?.urgentPendingCount ?? 0)
+
+/** 跳转审批台并只看加急单：统计数字与审批台列表同源，点击即可核对 */
+function goUrgentApprovals() {
+  router.push({ name: 'TransferApproval', query: { urgent: 'true' } })
+}
 
 // 抽屉内状态：明细加载后以最新计算结果为准，加载中回退到看板卡片状态
 const drawerStatus = computed<LineLoadStats['status']>(
@@ -285,7 +294,7 @@ onMounted(fetchBoard)
       </div>
     </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-7 gap-4">
       <div class="card-industrial p-4">
         <div class="flex items-center justify-between">
           <span class="text-sm text-industrial-500">产线总数</span>
@@ -345,6 +354,25 @@ onMounted(fetchBoard)
         <div class="text-xs text-industrial-400 mt-1">
           未确认责任人，未关闭共 {{ openAlertCount }} 起
         </div>
+      </div>
+
+      <div
+        class="card-industrial p-4 border-l-4 cursor-pointer transition-shadow hover:shadow-industrial-hover"
+        :class="urgentPendingCount > 0 ? 'border-l-red-600 bg-red-50/40' : 'border-l-industrial-300'"
+        title="点击查看加急待审批申请单"
+        @click="goUrgentApprovals"
+      >
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-industrial-500">加急待批</span>
+          <Flame class="w-5 h-5" :class="urgentPendingCount > 0 ? 'text-red-600' : 'text-industrial-300'" />
+        </div>
+        <div
+          class="text-3xl font-bold font-mono mt-2"
+          :class="urgentPendingCount > 0 ? 'text-red-600' : 'text-industrial-400'"
+        >
+          {{ urgentPendingCount }}
+        </div>
+        <div class="text-xs text-industrial-400 mt-1">调度员加急的待审批划转申请</div>
       </div>
 
       <div class="card-industrial p-4 col-span-2 lg:col-span-1">

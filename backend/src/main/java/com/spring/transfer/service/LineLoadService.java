@@ -8,12 +8,14 @@ import com.spring.transfer.dto.LineThresholdUpdateRequest;
 import com.spring.transfer.dto.LoadAlertEventResponse;
 import com.spring.transfer.dto.LoadStatus;
 import com.spring.transfer.dto.SimulationEstimateResponse;
+import com.spring.transfer.common.ApplicationStatus;
 import com.spring.transfer.entity.LoadAlertEvent;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
 import com.spring.transfer.entity.TransferRecord;
 import com.spring.transfer.repository.ProductionLineRepository;
 import com.spring.transfer.repository.SpringArchiveRepository;
+import com.spring.transfer.repository.TransferApplicationRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -54,16 +56,19 @@ public class LineLoadService {
     private final ProductionLineRepository productionLineRepository;
     private final SpringArchiveRepository springArchiveRepository;
     private final TransferRecordRepository transferRecordRepository;
+    private final TransferApplicationRepository applicationRepository;
     /** 告警事件随负载计算结果同步：异常建事件、恢复自动关闭；@Lazy 规避循环依赖 */
     private final LoadAlertService loadAlertService;
 
     public LineLoadService(ProductionLineRepository productionLineRepository,
                            SpringArchiveRepository springArchiveRepository,
                            TransferRecordRepository transferRecordRepository,
+                           TransferApplicationRepository applicationRepository,
                            @Lazy LoadAlertService loadAlertService) {
         this.productionLineRepository = productionLineRepository;
         this.springArchiveRepository = springArchiveRepository;
         this.transferRecordRepository = transferRecordRepository;
+        this.applicationRepository = applicationRepository;
         this.loadAlertService = loadAlertService;
     }
 
@@ -88,6 +93,9 @@ public class LineLoadService {
         response.setOverloadCount(grouped.getOrDefault(LoadStatus.OVERLOAD, List.of()).size());
         response.setPendingAlertCount(alertCounts.get("pending"));
         response.setOpenAlertCount(alertCounts.get("open"));
+        // 加急待批数与审批台同源：加急标记持久化在申请单上，结案自动解除，刷新后统计与列表一致
+        response.setUrgentPendingCount((int) applicationRepository.countByUrgentTrueAndStatusIn(
+                List.of(ApplicationStatus.PENDING, ApplicationStatus.PARTIAL)));
         response.setLines(all);
         response.setNormalLines(grouped.getOrDefault(LoadStatus.NORMAL, List.of()));
         response.setWarningLines(grouped.getOrDefault(LoadStatus.WARNING, List.of()));

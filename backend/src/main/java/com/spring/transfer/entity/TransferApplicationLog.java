@@ -16,7 +16,7 @@ public class TransferApplicationLog {
     @Column(name = "application_id", nullable = false)
     private Long applicationId;
 
-    /** 操作类型：SUBMIT-提交申请 APPROVE-审批通过 REJECT-审批驳回 */
+    /** 操作类型：SUBMIT-提交申请 APPROVE-审批通过 REJECT-审批驳回 URGENT-标记加急 URGENT_CANCEL-取消加急 */
     @Column(name = "action", nullable = false, length = 16)
     private String action;
 

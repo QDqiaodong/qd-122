@@ -25,6 +25,9 @@ public class LineLoadBoardResponse {
     /** 未关闭（待处理 + 处置中）的告警事件数 */
     private Integer openAlertCount;
 
+    /** 加急且仍待审批（待审批/部分处理）的划转申请单数 */
+    private Integer urgentPendingCount;
+
     /** 全部产线负载概览，按 超载 > 预警 > 正常、负载率降序排列 */
     private List<LineLoadStats> lines;
 

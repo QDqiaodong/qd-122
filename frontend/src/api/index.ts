@@ -16,6 +16,7 @@ import type {
   SubmitApplicationRequest,
   ApprovalRequest,
   ItemProcessResult,
+  UrgentRequest,
   PageResponse,
   LineLoadBoard,
   LineLoadDetail,
@@ -93,7 +94,7 @@ export const transferApi = {
 }
 
 export const applicationApi = {
-  list: (params?: { status?: ApplicationStatus; keyword?: string; halted?: boolean; page?: number; size?: number }) =>
+  list: (params?: { status?: ApplicationStatus; keyword?: string; halted?: boolean; urgent?: boolean; page?: number; size?: number }) =>
     request.get<unknown, ApiResponse<PageResponse<TransferApplication>>>('/transfer-applications', { params }),
   detail: (id: number) =>
     request.get<unknown, ApiResponse<ApplicationDetail>>(`/transfer-applications/${id}`),
@@ -103,6 +104,10 @@ export const applicationApi = {
     request.post<unknown, ApiResponse<ItemProcessResult[]>>('/transfer-applications/approve', data),
   reject: (data: ApprovalRequest) =>
     request.post<unknown, ApiResponse<ItemProcessResult[]>>('/transfer-applications/reject', data),
+  urgent: (id: number, data: UrgentRequest) =>
+    request.post<unknown, ApiResponse<TransferApplication>>(`/transfer-applications/${id}/urgent`, data),
+  cancelUrgent: (id: number, data: UrgentRequest) =>
+    request.post<unknown, ApiResponse<TransferApplication>>(`/transfer-applications/${id}/cancel-urgent`, data),
 }
 
 export const specApi = {

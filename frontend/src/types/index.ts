@@ -96,6 +96,8 @@ export interface LineLoadBoard {
   pendingAlertCount: number
   /** 未关闭（待处理 + 处置中）的告警事件数 */
   openAlertCount: number
+  /** 加急且仍待审批（待审批/部分处理）的划转申请单数 */
+  urgentPendingCount: number
   lines: LineLoadStats[]
   normalLines: LineLoadStats[]
   warningLines: LineLoadStats[]
@@ -233,6 +235,11 @@ export interface TransferApplication {
   toLineName: string
   reason: string
   status: ApplicationStatus
+  /** 加急标记：调度员标记后审批台优先展示；结案（全部通过/驳回）后自动解除 */
+  urgent?: boolean
+  urgentReason?: string | null
+  urgentOperator?: string | null
+  urgentTime?: string | null
   totalCount?: number
   pendingCount?: number
   approvedCount?: number
@@ -241,6 +248,12 @@ export interface TransferApplication {
   toLineHalted?: boolean
   toLineHaltReason?: string | null
   toLineExpectedResumeTime?: string | null
+}
+
+/** 标记加急 / 取消加急请求：加急填原因，取消填说明，均记录操作人（调度员） */
+export interface UrgentRequest {
+  operator: string
+  reason: string
 }
 
 export interface TransferApplicationItem {
@@ -265,7 +278,7 @@ export interface TransferApplicationItem {
 export interface TransferApplicationLog {
   id: number
   applicationId: number
-  action: 'SUBMIT' | 'APPROVE' | 'REJECT'
+  action: 'SUBMIT' | 'APPROVE' | 'REJECT' | 'URGENT' | 'URGENT_CANCEL'
   operator: string
   operateTime: string
   detail: string

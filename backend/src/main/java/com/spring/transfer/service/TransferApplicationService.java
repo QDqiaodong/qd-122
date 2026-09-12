@@ -7,6 +7,7 @@ import com.spring.transfer.dto.ApplicationDetailResponse;
 import com.spring.transfer.dto.ApprovalRequest;
 import com.spring.transfer.dto.ItemProcessResult;
 import com.spring.transfer.dto.SubmitApplicationRequest;
+import com.spring.transfer.dto.UrgentRequest;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
 import com.spring.transfer.entity.TransferApplication;
@@ -73,7 +74,7 @@ public class TransferApplicationService {
     }
 
     public Page<TransferApplication> findAll(ApplicationStatus status, String keyword, Boolean halted,
-                                             Pageable pageable) {
+                                             Boolean urgent, Pageable pageable) {
         // 审批台按「目标产线是否停台」筛选：先取当前停台产线ID集合，再以IN条件过滤申请单；
         // 停台状态以数据库为准，页面刷新后标记保持
         List<Long> haltedLineIds = productionLineRepository.findByHaltStatus(LineHaltStatus.HALTED).stream()
@@ -89,9 +90,15 @@ public class TransferApplicationService {
             // 集合始终保持非空（haltFilter=0 时该条件不参与匹配），避免空集合 IN 与 null 集合参数问题
             haltedLineIds = List.of(-1L);
         }
+        int urgentFilter;
+        if (urgent == null) {
+            urgentFilter = 0;
+        } else {
+            urgentFilter = urgent ? 1 : 2;
+        }
         Page<TransferApplication> page = applicationRepository.findByCondition(
                 status, keyword == null || keyword.isBlank() ? null : keyword.trim(),
-                haltFilter, haltedLineIds, pageable);
+                haltFilter, haltedLineIds, urgentFilter, pageable);
         page.getContent().forEach(this::fillItemCounts);
         enrichHaltMarkers(page.getContent());
         return page;
@@ -210,6 +217,73 @@ public class TransferApplicationService {
                 "提交划转申请，目标产线「" + toLine.getLineName() + "」，共 " + items.size() + " 条弹簧，申请原因：" + application.getReason()));
 
         fillItemCounts(application);
+        return application;
+    }
+
+    /**
+     * 标记加急：调度员对待审批（含部分处理）申请单标记加急并填写加急原因，
+     * 审批台默认按加急优先排序展示。已结案（全部通过/全部驳回）单据不能再加急，
+     * 重复加急被拒绝并回显当前加急信息。加急标记持久化，刷新后标记、排序与看板统计保持一致。
+     */
+    @Transactional
+    public TransferApplication markUrgent(Long id, UrgentRequest request) {
+        if (request.getReason() == null || request.getReason().trim().isEmpty()) {
+            throw new RuntimeException("标记加急必须填写加急原因");
+        }
+        // 悲观锁串行化同一申请单的加急/取消加急/审批并发操作
+        TransferApplication application = applicationRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RuntimeException("划转申请不存在"));
+        if (application.getStatus() == ApplicationStatus.APPROVED
+                || application.getStatus() == ApplicationStatus.REJECTED) {
+            throw new RuntimeException("该申请单已结案（" + applicationStatusText(application.getStatus())
+                    + "），不能再标记加急");
+        }
+        if (application.isUrgent()) {
+            throw new RuntimeException("该申请单已标记加急（加急人：" + application.getUrgentOperator()
+                    + "，加急时间：" + formatTime(application.getUrgentTime())
+                    + "），请勿重复加急；如需调整可先取消加急后重新标记");
+        }
+        application.setUrgent(true);
+        application.setUrgentReason(request.getReason().trim());
+        application.setUrgentOperator(request.getOperator().trim());
+        application.setUrgentTime(LocalDateTime.now());
+        application = applicationRepository.save(application);
+
+        logRepository.save(new TransferApplicationLog(application.getId(), "URGENT",
+                application.getUrgentOperator(),
+                "标记加急，加急原因：" + application.getUrgentReason()));
+
+        fillItemCounts(application);
+        enrichHaltMarkers(List.of(application));
+        return application;
+    }
+
+    /**
+     * 取消加急：必须填写取消说明（记入操作记录）。未加急的申请单取消时给出明确提示。
+     */
+    @Transactional
+    public TransferApplication cancelUrgent(Long id, UrgentRequest request) {
+        if (request.getReason() == null || request.getReason().trim().isEmpty()) {
+            throw new RuntimeException("取消加急必须填写取消说明");
+        }
+        TransferApplication application = applicationRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new RuntimeException("划转申请不存在"));
+        if (!application.isUrgent()) {
+            throw new RuntimeException("该申请单未标记加急，无需取消");
+        }
+        String operator = request.getOperator().trim();
+        String reason = request.getReason().trim();
+        application.setUrgent(false);
+        application.setUrgentReason(null);
+        application.setUrgentOperator(null);
+        application.setUrgentTime(null);
+        application = applicationRepository.save(application);
+
+        logRepository.save(new TransferApplicationLog(application.getId(), "URGENT_CANCEL",
+                operator, "取消加急，取消说明：" + reason));
+
+        fillItemCounts(application);
+        enrichHaltMarkers(List.of(application));
         return application;
     }
 
@@ -442,6 +516,16 @@ public class TransferApplicationService {
             status = ApplicationStatus.PARTIAL;
         }
         applicationRepository.updateStatus(applicationId, status);
+
+        // 申请单结案（全部通过/全部驳回）后加急标记自动解除并留痕，
+        // 保证加急单始终对应待审批单据，看板「加急待批数」与列表排序刷新后一致
+        if (status == ApplicationStatus.APPROVED || status == ApplicationStatus.REJECTED) {
+            int cleared = applicationRepository.clearUrgentIfMarked(applicationId);
+            if (cleared > 0) {
+                logRepository.save(new TransferApplicationLog(applicationId, "URGENT_CANCEL", "SYSTEM",
+                        "申请单已结案（" + applicationStatusText(status) + "），加急标记自动解除"));
+            }
+        }
     }
 
     private void fillItemCounts(TransferApplication application) {
@@ -469,5 +553,18 @@ public class TransferApplicationService {
             case APPROVED -> "已通过";
             case REJECTED -> "已驳回";
         };
+    }
+
+    private String applicationStatusText(ApplicationStatus status) {
+        return switch (status) {
+            case PENDING -> "待审批";
+            case APPROVED -> "全部通过";
+            case REJECTED -> "全部驳回";
+            case PARTIAL -> "部分处理";
+        };
+    }
+
+    private String formatTime(LocalDateTime time) {
+        return time == null ? "-" : time.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 }

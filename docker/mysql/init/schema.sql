@@ -84,7 +84,12 @@ CREATE TABLE IF NOT EXISTS transfer_application (
     to_line_name VARCHAR(64) NOT NULL COMMENT '目标产线名称',
     reason VARCHAR(255) NOT NULL COMMENT '申请原因',
     status VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT '申请单状态：PENDING-待审批 APPROVED-全部通过 REJECTED-全部驳回 PARTIAL-部分处理',
+    urgent TINYINT(1) NOT NULL DEFAULT 0 COMMENT '加急标记：0-普通 1-加急（审批台优先展示；结案后自动解除）',
+    urgent_reason VARCHAR(255) COMMENT '加急原因（标记加急时必填）',
+    urgent_operator VARCHAR(32) COMMENT '加急操作人（调度员）',
+    urgent_time DATETIME COMMENT '加急时间',
     INDEX idx_status (status),
+    INDEX idx_urgent (urgent),
     INDEX idx_apply_time (apply_time),
     FOREIGN KEY (to_line_id) REFERENCES production_line(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='划转申请单表';
@@ -118,7 +123,7 @@ CREATE TABLE IF NOT EXISTS transfer_application_item (
 CREATE TABLE IF NOT EXISTS transfer_application_log (
     id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
     application_id BIGINT NOT NULL COMMENT '划转申请单ID',
-    action VARCHAR(16) NOT NULL COMMENT '操作类型：SUBMIT-提交申请 APPROVE-审批通过 REJECT-审批驳回',
+    action VARCHAR(16) NOT NULL COMMENT '操作类型：SUBMIT-提交申请 APPROVE-审批通过 REJECT-审批驳回 URGENT-标记加急 URGENT_CANCEL-取消加急',
     operator VARCHAR(32) NOT NULL COMMENT '操作人',
     operate_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
     detail VARCHAR(512) COMMENT '操作详情',

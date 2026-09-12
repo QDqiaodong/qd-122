@@ -8,6 +8,7 @@ import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
 import com.spring.transfer.repository.ProductionLineRepository;
 import com.spring.transfer.repository.SpringArchiveRepository;
+import com.spring.transfer.repository.TransferApplicationRepository;
 import com.spring.transfer.repository.TransferRecordRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,8 @@ class LineLoadServiceSimulationTest {
     @Mock
     private TransferRecordRepository transferRecordRepository;
     @Mock
+    private TransferApplicationRepository applicationRepository;
+    @Mock
     private LoadAlertService loadAlertService;
 
     private LineLoadService lineLoadService;
@@ -48,7 +51,7 @@ class LineLoadServiceSimulationTest {
     @BeforeEach
     void setUp() {
         lineLoadService = new LineLoadService(productionLineRepository, springArchiveRepository,
-                transferRecordRepository, loadAlertService);
+                transferRecordRepository, applicationRepository, loadAlertService);
 
         lines = List.of(
                 line(1L, "LINE-001", "装配一号线", 2, "0.2", "1.0"),
