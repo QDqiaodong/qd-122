@@ -19,8 +19,8 @@ export const useLineStore = defineStore('line', () => {
     return map
   })
 
-  async function fetchLines() {
-    if (lines.value.length > 0) return
+  async function fetchLines(force = false) {
+    if (!force && lines.value.length > 0) return
     loading.value = true
     try {
       const response = await lineApi.list()
@@ -34,6 +34,10 @@ export const useLineStore = defineStore('line', () => {
     return lineNameMap.value.get(id) || '未知产线'
   }
 
+  function isHalted(id: number) {
+    return lineMap.value.get(id)?.haltStatus === 'HALTED'
+  }
+
   return {
     lines,
     loading,
@@ -41,5 +45,6 @@ export const useLineStore = defineStore('line', () => {
     lineNameMap,
     fetchLines,
     getLineName,
+    isHalted,
   }
 })

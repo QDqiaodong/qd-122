@@ -2,6 +2,7 @@ package com.spring.transfer.service;
 
 import com.spring.transfer.common.ApplicationStatus;
 import com.spring.transfer.common.ItemStatus;
+import com.spring.transfer.common.LineHaltStatus;
 import com.spring.transfer.dto.ApplicationDetailResponse;
 import com.spring.transfer.dto.ApprovalRequest;
 import com.spring.transfer.dto.ItemProcessResult;
@@ -71,16 +72,53 @@ public class TransferApplicationService {
         this.loadAlertService = loadAlertService;
     }
 
-    public Page<TransferApplication> findAll(ApplicationStatus status, String keyword, Pageable pageable) {
-        Page<TransferApplication> page = applicationRepository.findByCondition(status, keyword, pageable);
+    public Page<TransferApplication> findAll(ApplicationStatus status, String keyword, Boolean halted,
+                                             Pageable pageable) {
+        // 审批台按「目标产线是否停台」筛选：先取当前停台产线ID集合，再以IN条件过滤申请单；
+        // 停台状态以数据库为准，页面刷新后标记保持
+        List<Long> haltedLineIds = productionLineRepository.findByHaltStatus(LineHaltStatus.HALTED).stream()
+                .map(ProductionLine::getId)
+                .collect(Collectors.toList());
+        int haltFilter;
+        if (halted == null) {
+            haltFilter = 0;
+        } else {
+            haltFilter = halted ? 1 : 2;
+        }
+        if (haltedLineIds.isEmpty()) {
+            // 集合始终保持非空（haltFilter=0 时该条件不参与匹配），避免空集合 IN 与 null 集合参数问题
+            haltedLineIds = List.of(-1L);
+        }
+        Page<TransferApplication> page = applicationRepository.findByCondition(
+                status, keyword == null || keyword.isBlank() ? null : keyword.trim(),
+                haltFilter, haltedLineIds, pageable);
         page.getContent().forEach(this::fillItemCounts);
+        enrichHaltMarkers(page.getContent());
         return page;
+    }
+
+    /** 挂接目标产线的实时停台标记与停台摘要，供审批台列表/详情给出明确拦截原因 */
+    private void enrichHaltMarkers(List<TransferApplication> applications) {
+        if (applications.isEmpty()) {
+            return;
+        }
+        Map<Long, ProductionLine> lineCache = productionLineRepository.findAll().stream()
+                .collect(Collectors.toMap(ProductionLine::getId, Function.identity()));
+        applications.forEach(app -> {
+            ProductionLine line = lineCache.get(app.getToLineId());
+            if (line != null) {
+                app.setToLineHalted(line.isHalted());
+                app.setToLineHaltReason(line.getHaltReason());
+                app.setToLineExpectedResumeTime(line.getHaltExpectedResumeTime());
+            }
+        });
     }
 
     public ApplicationDetailResponse getDetail(Long id) {
         TransferApplication application = applicationRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("划转申请不存在"));
         fillItemCounts(application);
+        enrichHaltMarkers(List.of(application));
         List<TransferApplicationItem> items = itemRepository.findByApplicationIdOrderByIdAsc(id);
         List<TransferApplicationLog> logs = logRepository.findByApplicationIdOrderByOperateTimeAscIdAsc(id);
         return new ApplicationDetailResponse(application, items, logs);
@@ -93,6 +131,11 @@ public class TransferApplicationService {
     public TransferApplication submit(SubmitApplicationRequest request) {
         ProductionLine toLine = productionLineRepository.findById(request.getToLineId())
                 .orElseThrow(() -> new RuntimeException("目标产线不存在"));
+        // 停台校验：临时停台期间该产线不能作为划转接收方，提示中给出停台原因与预计复台时间
+        if (toLine.isHalted()) {
+            throw new RuntimeException(toLine.getHaltSummary()
+                    + "，停台期间不能作为划转接收方，请待复台后再提交申请");
+        }
 
         List<Long> springIds = request.getSpringIds().stream().distinct().toList();
         // 悲观锁锁定弹簧档案，防止并发提交对同一弹簧重复申请
@@ -271,6 +314,15 @@ public class TransferApplicationService {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "弹簧处于封存状态（" + spring.getSealSummary() + "），封存期间不能划转，请先解封");
         }
+        // 申请提交后目标产线被登记停台的，审批拦截，停台期间该产线不能作为划转接收方
+        ProductionLine toLine = productionLineRepository.findById(item.getToLineId()).orElse(null);
+        if (toLine == null) {
+            return ItemProcessResult.fail(itemId, item.getSpringCode(), "目标产线不存在");
+        }
+        if (toLine.isHalted()) {
+            return ItemProcessResult.fail(itemId, item.getSpringCode(),
+                    toLine.getHaltSummary() + "，停台期间不能接收划转，请待复台后再审批通过");
+        }
 
         // 原子状态流转（双保险），防止并发审批重复生效
         int updated = itemRepository.approveIfPending(itemId, approver, LocalDateTime.now(),
@@ -291,8 +343,8 @@ public class TransferApplicationService {
         record.setSpringCode(spring.getSpringCode());
         record.setFromLineId(fromLine.getId());
         record.setFromLineName(fromLine.getLineName());
-        record.setToLineId(item.getToLineId());
-        record.setToLineName(item.getToLineName());
+        record.setToLineId(toLine.getId());
+        record.setToLineName(toLine.getLineName());
         record.setOperator(approver);
         record.setOperateTime(LocalDateTime.now());
         record.setRemark("划转申请单 " + application.getApplicationNo() + " 审批通过（申请人：" + application.getApplicant() + "）");

@@ -48,4 +48,16 @@ public class TransferApplication {
 
     @Transient
     private Integer rejectedCount;
+
+    /** 目标产线当前是否停台（列表/详情实时挂接，不持久化） */
+    @Transient
+    private Boolean toLineHalted;
+
+    /** 目标产线停台原因（停台时挂接） */
+    @Transient
+    private String toLineHaltReason;
+
+    /** 目标产线预计复台时间（停台时挂接） */
+    @Transient
+    private java.time.LocalDateTime toLineExpectedResumeTime;
 }

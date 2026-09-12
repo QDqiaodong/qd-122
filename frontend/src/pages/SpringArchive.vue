@@ -18,6 +18,7 @@ import {
   XCircle,
   Lock,
   LockOpen,
+  OctagonPause,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -294,8 +295,16 @@ onMounted(async () => {
       >
         <div class="flex items-center justify-between mb-3">
           <div class="flex items-center gap-2">
-            <div class="w-3 h-3 rounded-full bg-accent-500"></div>
+            <div
+              class="w-3 h-3 rounded-full"
+              :class="line.haltStatus === 'HALTED' ? 'bg-red-500' : 'bg-accent-500'"
+            ></div>
             <span class="font-mono text-xs text-industrial-500">{{ line.lineCode }}</span>
+            <OctagonPause
+              v-if="line.haltStatus === 'HALTED'"
+              class="w-4 h-4 text-red-500 cursor-help"
+              :title="`临时停台中：${line.haltReason || '原因未登记'}${line.haltExpectedResumeTime ? '，预计复台：' + String(line.haltExpectedResumeTime).replace('T', ' ').substring(0, 16) : ''}`"
+            />
           </div>
           <span class="text-2xl font-bold text-primary-800 font-mono">
             {{ springsByLine.get(line.id)?.length || 0 }}

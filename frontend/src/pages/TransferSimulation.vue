@@ -27,6 +27,7 @@ import {
   CheckCircle2,
   RefreshCw,
   ClipboardList,
+  Ban,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -78,9 +79,23 @@ const selectedSprings = computed(() => {
 const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
 
 const availableTargetLines = computed(() => {
-  if (selectedSprings.value.length === 0) return lineStore.lines
+  if (selectedSprings.value.length === 0) {
+    return lineStore.lines.filter((l) => l.haltStatus !== 'HALTED')
+  }
   const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
-  return lineStore.lines.filter((line) => !fromLineIds.has(line.id))
+  return lineStore.lines.filter((line) => !fromLineIds.has(line.id) && line.haltStatus !== 'HALTED')
+})
+
+/** 停台产线（排除弹簧当前所在产线）：不能作为拟接收产线，明确展示停台原因 */
+const haltedTargetLines = computed(() => {
+  const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
+  return lineStore.lines.filter((line) => line.haltStatus === 'HALTED' && !fromLineIds.has(line.id))
+})
+
+/** 已选拟接收产线在数据刷新后变为停台时的兜底拦截 */
+const selectedTargetHalted = computed(() => {
+  if (!simForm.toLineId) return null
+  return lineStore.lines.find((l) => l.id === simForm.toLineId && l.haltStatus === 'HALTED') ?? null
 })
 
 // 选择或目标产线变化后，原预估结果失效
@@ -159,6 +174,16 @@ function validateSelection(): boolean {
   }
   if (!simForm.toLineId) {
     ElMessage.warning('请选择拟接收产线')
+    return false
+  }
+  if (selectedTargetHalted.value) {
+    ElMessage.warning({
+      message:
+        `拟接收产线「${selectedTargetHalted.value.lineName}」临时停台中` +
+        `（${selectedTargetHalted.value.haltReason || '停台原因未登记'}），停台期间不能接收划转`,
+      duration: 6000,
+      showClose: true,
+    })
     return false
   }
   return true
@@ -468,6 +493,23 @@ onMounted(async () => {
                 class="text-center py-4 text-industrial-400 text-sm"
               >
                 请先选择弹簧
+              </div>
+            </div>
+            <!-- 停台产线：不能作为拟接收产线，明确展示停台原因 -->
+            <div v-if="haltedTargetLines.length > 0" class="mt-2 space-y-1.5">
+              <div
+                v-for="line in haltedTargetLines"
+                :key="'halt-' + line.id"
+                class="flex items-center gap-2 p-2 rounded-industrial border border-red-200 bg-red-50"
+                title="停台期间不能作为划转接收方"
+              >
+                <Ban class="w-4 h-4 text-red-500 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-red-700 line-through decoration-red-300">{{ line.lineName }}</div>
+                  <div class="text-xs text-red-500 truncate">
+                    停台中：{{ line.haltReason || '原因未登记' }}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

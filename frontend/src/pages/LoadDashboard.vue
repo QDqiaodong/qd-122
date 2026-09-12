@@ -2,16 +2,19 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { lineLoadApi, loadAlertApi } from '@/api'
+import { useLineStore } from '@/stores/lines'
 import type {
   LineLoadBoard,
   LineLoadStats,
   LineLoadDetail,
   SpringArchive,
+  ProductionLine,
   TransferRecord,
   LoadAlertEvent,
   AlertHandleStatus,
 } from '@/types'
 import LineThresholdModal from '@/components/LineThresholdModal.vue'
+import LineHaltModal from '@/components/LineHaltModal.vue'
 import AlertDispositionModal from '@/components/AlertDispositionModal.vue'
 import {
   Gauge,
@@ -33,10 +36,24 @@ import {
   ClipboardCheck,
   CircleDot,
   ListChecks,
+  OctagonPause,
+  PlayCircle,
 } from 'lucide-vue-next'
 
+const lineStore = useLineStore()
 const loading = ref(false)
 const board = ref<LineLoadBoard | null>(null)
+
+/** 产线列表按是否停台筛选：ALL-全部 HALTED-仅停台 NORMAL-仅正常 */
+const haltFilter = ref<'ALL' | 'HALTED' | 'NORMAL'>('ALL')
+
+const haltedCount = computed(() => board.value?.lines.filter((l) => l.halted).length ?? 0)
+
+function filterByHalt(list: LineLoadStats[]) {
+  if (haltFilter.value === 'HALTED') return list.filter((l) => l.halted)
+  if (haltFilter.value === 'NORMAL') return list.filter((l) => !l.halted)
+  return list
+}
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -44,6 +61,11 @@ const detail = ref<LineLoadDetail | null>(null)
 const selectedLine = ref<LineLoadStats | null>(null)
 
 const thresholdVisible = ref(false)
+
+// 停台/复台弹窗
+const haltVisible = ref(false)
+const haltMode = ref<'halt' | 'resume'>('halt')
+const haltLine = ref<LineLoadStats | null>(null)
 
 // 告警处置弹窗
 const dispositionVisible = ref(false)
@@ -62,6 +84,12 @@ const openAlertCount = computed(() => board.value?.openAlertCount ?? 0)
 const drawerStatus = computed<LineLoadStats['status']>(
   () => detail.value?.stats.status ?? selectedLine.value?.status ?? 'NORMAL'
 )
+
+// 抽屉内停台标记：明细加载后以最新数据为准，加载中回退到看板卡片
+const drawerStats = computed<LineLoadStats | null>(
+  () => detail.value?.stats ?? selectedLine.value
+)
+const drawerHalted = computed(() => drawerStats.value?.halted === true)
 
 // 抽屉内未关闭告警事件（明细数据为准，加载前回退到看板列表里的轻量标记）
 const openEvent = computed<LoadAlertEvent | null>(() => detail.value?.openAlertEvent ?? null)
@@ -152,6 +180,25 @@ function openThreshold(line: LineLoadStats) {
   thresholdVisible.value = true
 }
 
+/** 登记停台 / 复台：打开弹窗（弹窗内部会拉取待审批单影响提示） */
+function openHalt(line: LineLoadStats, mode: 'halt' | 'resume') {
+  haltLine.value = line
+  haltMode.value = mode
+  haltVisible.value = true
+}
+
+/** 停台/复台成功后：刷新全局产线缓存与看板，抽屉开着则同步刷新抽屉内停台标记 */
+async function handleHaltSaved() {
+  haltVisible.value = false
+  await lineStore.fetchLines(true)
+  if (detailVisible.value && selectedLine.value) {
+    // reloadDetail 内部会顺带刷新看板卡片标记
+    await reloadDetail()
+  } else {
+    await fetchBoard()
+  }
+}
+
 async function handleThresholdSaved() {
   await fetchBoard()
   // 若明细抽屉处于打开状态，同步刷新抽屉内的统计与原因
@@ -206,15 +253,36 @@ onMounted(fetchBoard)
 <template>
   <div class="space-y-6 animate-fade-in">
     <!-- 顶部统计：与下方分组同源 -->
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between flex-wrap gap-3">
       <div class="flex items-center gap-2 text-industrial-600">
         <Gauge class="w-5 h-5 text-primary-700" />
         <span class="text-sm">按归属数量、弹力系数区间与近 7 天划转趋势实时评估</span>
       </div>
-      <button class="btn-industrial" :disabled="loading" @click="fetchBoard">
-        <RefreshCw class="w-4 h-4 inline mr-1" :class="{ 'animate-spin': loading }" />
-        刷新
-      </button>
+      <div class="flex items-center gap-3">
+        <!-- 产线列表按是否停台筛选 -->
+        <div class="flex items-center gap-1 bg-white border border-industrial-200 rounded-industrial p-0.5">
+          <button
+            v-for="opt in [
+              { key: 'ALL', label: '全部产线' },
+              { key: 'HALTED', label: `停台 ${haltedCount}` },
+              { key: 'NORMAL', label: '未停台' },
+            ]"
+            :key="opt.key"
+            class="px-3 py-1 rounded text-xs transition-colors flex items-center gap-1"
+            :class="haltFilter === opt.key
+              ? 'bg-primary-700 text-white'
+              : 'text-industrial-500 hover:bg-industrial-100'"
+            @click="haltFilter = opt.key as 'ALL' | 'HALTED' | 'NORMAL'"
+          >
+            <OctagonPause v-if="opt.key === 'HALTED' && haltedCount > 0" class="w-3.5 h-3.5" />
+            {{ opt.label }}
+          </button>
+        </div>
+        <button class="btn-industrial" :disabled="loading" @click="fetchBoard">
+          <RefreshCw class="w-4 h-4 inline mr-1" :class="{ 'animate-spin': loading }" />
+          刷新
+        </button>
+      </div>
     </div>
 
     <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
@@ -309,9 +377,9 @@ onMounted(fetchBoard)
     <template v-else-if="board">
       <section
         v-for="group in [
-          { key: 'OVERLOAD', title: '超载产线', icon: OctagonAlert, list: board.overloadLines, tone: 'red' },
-          { key: 'WARNING', title: '预警产线', icon: AlertTriangle, list: board.warningLines, tone: 'amber' },
-          { key: 'NORMAL', title: '正常产线', icon: CheckCircle2, list: board.normalLines, tone: 'green' },
+          { key: 'OVERLOAD', title: '超载产线', icon: OctagonAlert, list: filterByHalt(board.overloadLines), tone: 'red' },
+          { key: 'WARNING', title: '预警产线', icon: AlertTriangle, list: filterByHalt(board.warningLines), tone: 'amber' },
+          { key: 'NORMAL', title: '正常产线', icon: CheckCircle2, list: filterByHalt(board.normalLines), tone: 'green' },
         ]"
         :key="group.key"
         class="space-y-3"
@@ -361,6 +429,14 @@ onMounted(fetchBoard)
                 <div class="flex items-center gap-2">
                   <span class="font-mono text-xs text-industrial-400">{{ line.lineCode }}</span>
                   <span
+                    v-if="line.halted"
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 cursor-help"
+                    :title="`停台原因：${line.haltReason || '未登记'}${line.haltExpectedResumeTime ? '，预计复台：' + formatTime(line.haltExpectedResumeTime) : ''}`"
+                  >
+                    <OctagonPause class="w-3 h-3" />
+                    停台
+                  </span>
+                  <span
                     v-if="line.openAlertEventId"
                     class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium"
                     :class="line.openAlertStatus === 'PENDING'
@@ -374,6 +450,17 @@ onMounted(fetchBoard)
                 <div class="font-semibold text-industrial-800 mt-0.5">{{ line.lineName }}</div>
               </div>
               <div class="flex items-center gap-1">
+                <button
+                  class="p-1.5 rounded-industrial"
+                  :class="line.halted
+                    ? 'text-green-600 hover:bg-green-50'
+                    : 'text-red-500 hover:bg-red-50'"
+                  :title="line.halted ? '复台（须填写复台结论）' : '登记临时停台'"
+                  @click.stop="openHalt(line, line.halted ? 'resume' : 'halt')"
+                >
+                  <PlayCircle v-if="line.halted" class="w-4 h-4" />
+                  <OctagonPause v-else class="w-4 h-4" />
+                </button>
                 <button
                   v-if="line.openAlertEventId"
                   class="p-1.5 rounded-industrial"
@@ -423,6 +510,20 @@ onMounted(fetchBoard)
                   }"
                   :style="{ width: Math.min(line.loadRate ?? 0, 100) + '%' }"
                 ></div>
+              </div>
+            </div>
+
+            <!-- 停台信息 -->
+            <div
+              v-if="line.halted"
+              class="mt-3 px-2.5 py-1.5 rounded-industrial bg-red-50 border border-red-200 text-xs text-red-700"
+            >
+              <div class="flex items-center gap-1 font-medium">
+                <OctagonPause class="w-3.5 h-3.5" />
+                临时停台中 · 预计复台 {{ formatTime(line.haltExpectedResumeTime) }}
+              </div>
+              <div class="mt-0.5 text-red-600 truncate" :title="line.haltReason ?? ''">
+                原因：{{ line.haltReason || '未登记' }}
               </div>
             </div>
 
@@ -489,6 +590,14 @@ onMounted(fetchBoard)
                 {{ drawerStatus === 'OVERLOAD' ? '超载' : drawerStatus === 'WARNING' ? '预警' : '正常' }}
               </span>
               <span
+                v-if="drawerHalted"
+                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700"
+                :title="`停台原因：${drawerStats?.haltReason || '未登记'}${drawerStats?.haltExpectedResumeTime ? '，预计复台：' + formatTime(drawerStats.haltExpectedResumeTime) : ''}`"
+              >
+                <OctagonPause class="w-3 h-3" />
+                临时停台
+              </span>
+              <span
                 v-if="openEvent"
                 class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
                 :class="openEvent.status === 'PENDING'
@@ -502,6 +611,17 @@ onMounted(fetchBoard)
             <p class="text-sm text-industrial-500 mt-1">{{ selectedLine.description || '暂无描述' }}</p>
           </div>
           <div class="flex items-center gap-2">
+            <button
+              class="text-sm px-3 py-1.5 rounded-industrial border transition-colors"
+              :class="drawerHalted
+                ? 'border-green-300 text-green-700 hover:bg-green-50'
+                : 'border-red-300 text-red-600 hover:bg-red-50'"
+              @click="openHalt(selectedLine, drawerHalted ? 'resume' : 'halt')"
+            >
+              <PlayCircle v-if="drawerHalted" class="w-4 h-4 inline mr-1" />
+              <OctagonPause v-else class="w-4 h-4 inline mr-1" />
+              {{ drawerHalted ? '复台（填结论）' : '登记停台' }}
+            </button>
             <button class="btn-industrial-outline" @click="openThreshold(selectedLine)">
               <Settings2 class="w-4 h-4 inline mr-1" />
               维护阈值
@@ -519,6 +639,60 @@ onMounted(fetchBoard)
           </div>
 
           <template v-else-if="detail">
+            <!-- 停台信息（停台中展示登记信息，正常时若复台过展示最近复台结论） -->
+            <div
+              v-if="drawerStats?.halted"
+              class="card-industrial p-4 border-2 border-red-300 bg-red-50/50"
+            >
+              <div class="flex items-center gap-2 mb-2">
+                <OctagonPause class="w-4 h-4 text-red-600" />
+                <h3 class="font-semibold text-red-700">产线临时停台中</h3>
+                <span class="ml-auto text-xs text-industrial-400 font-mono">
+                  停台登记 {{ formatTime(drawerStats.haltTime) }}
+                </span>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div class="bg-white rounded-industrial px-3 py-2 border border-red-200">
+                  <div class="text-xs text-industrial-500">停台原因</div>
+                  <div class="mt-0.5 font-medium text-industrial-800">
+                    {{ drawerStats.haltReason || '未登记' }}
+                  </div>
+                </div>
+                <div class="bg-white rounded-industrial px-3 py-2 border border-red-200">
+                  <div class="text-xs text-industrial-500">预计复台时间</div>
+                  <div class="mt-0.5 font-mono font-medium text-red-700">
+                    {{ formatTime(drawerStats.haltExpectedResumeTime) }}
+                  </div>
+                </div>
+                <div class="md:col-span-2 text-xs text-red-600">
+                  停台期间该产线不能作为划转接收方，新划转申请、调拨模拟与审批通过均会被拦截。
+                  登记人：{{ drawerStats.haltOperator || '-' }}
+                </div>
+              </div>
+              <div class="mt-3 flex justify-end">
+                <button
+                  class="text-sm px-3 py-1.5 rounded-industrial border border-green-300 text-green-700 hover:bg-green-50"
+                  @click="openHalt(selectedLine!, 'resume')"
+                >
+                  <PlayCircle class="w-4 h-4 inline mr-1" />
+                  复台（须填写复台结论）
+                </button>
+              </div>
+            </div>
+            <div
+              v-else-if="drawerStats?.resumeConclusion"
+              class="card-industrial p-4 border-l-4 border-l-green-500"
+            >
+              <div class="flex items-center gap-2">
+                <PlayCircle class="w-4 h-4 text-green-600" />
+                <h3 class="font-semibold text-industrial-800">最近复台结论</h3>
+                <span class="ml-auto text-xs text-industrial-400 font-mono">
+                  {{ drawerStats.resumeOperator || '-' }} 复台于 {{ formatTime(drawerStats.resumeTime) }}
+                </span>
+              </div>
+              <p class="mt-1.5 text-sm text-industrial-700">{{ drawerStats.resumeConclusion }}</p>
+            </div>
+
             <!-- 指标概览 -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div class="card-industrial p-3">
@@ -854,6 +1028,13 @@ onMounted(fetchBoard)
       v-model:visible="thresholdVisible"
       :line="selectedLine"
       @saved="handleThresholdSaved"
+    />
+
+    <LineHaltModal
+      v-model:visible="haltVisible"
+      :line="haltLine"
+      :mode="haltMode"
+      @saved="handleHaltSaved"
     />
 
     <AlertDispositionModal

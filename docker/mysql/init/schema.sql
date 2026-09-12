@@ -12,9 +12,18 @@ CREATE TABLE IF NOT EXISTS production_line (
     daily_capacity_threshold INT COMMENT '日承载阈值（单日可承载弹簧数量上限）',
     elastic_min DECIMAL(10,4) COMMENT '适用弹力系数下限 N/mm',
     elastic_max DECIMAL(10,4) COMMENT '适用弹力系数上限 N/mm',
+    halt_status VARCHAR(16) NOT NULL DEFAULT 'NORMAL' COMMENT '停台状态：NORMAL-正常 HALTED-临时停台中',
+    halt_reason VARCHAR(255) COMMENT '停台原因（设备检修/缺料/工艺调整等）',
+    halt_expected_resume_time DATETIME COMMENT '预计复台时间',
+    halt_operator VARCHAR(32) COMMENT '停台操作人（调度员）',
+    halt_time DATETIME COMMENT '停台时间',
+    resume_operator VARCHAR(32) COMMENT '复台操作人',
+    resume_time DATETIME COMMENT '复台时间',
+    resume_conclusion VARCHAR(255) COMMENT '复台结论（停台原因核实/处置结果）',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    INDEX idx_line_code (line_code)
+    INDEX idx_line_code (line_code),
+    INDEX idx_halt_status (halt_status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='生产产线表';
 
 -- 兼容已初始化的旧库：补齐负载阈值相关列（列已存在时忽略报错）

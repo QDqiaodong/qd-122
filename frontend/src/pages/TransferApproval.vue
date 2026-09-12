@@ -23,6 +23,7 @@ import {
   Cog,
   ChevronRight,
   RefreshCw,
+  OctagonPause,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -40,9 +41,17 @@ const loading = ref(false)
 const applications = ref<TransferApplication[]>([])
 
 // 筛选条件在页面刷新后仍需保留：以路由 query 为持久化载体，刷新（F5）后从 URL 还原
+function parseHalted(value: unknown): boolean | null {
+  if (value === 'true') return true
+  if (value === 'false') return false
+  return null
+}
+
 const searchForm = reactive({
   status: parseStatus(route.query.status),
   keyword: typeof route.query.keyword === 'string' ? route.query.keyword : '',
+  // 按目标产线是否停台筛选：true-仅停台 false-仅未停台 null-全部
+  halted: parseHalted(route.query.halted),
 })
 
 const pagination = reactive({
@@ -56,6 +65,7 @@ function syncQuery() {
   const query: Record<string, string> = {}
   if (searchForm.status) query.status = searchForm.status
   if (searchForm.keyword.trim()) query.keyword = searchForm.keyword.trim()
+  if (searchForm.halted !== null) query.halted = String(searchForm.halted)
   if (pagination.page > 0) query.page = String(pagination.page + 1)
   router.replace({ name: 'TransferApproval', query })
 }
@@ -100,6 +110,7 @@ async function fetchApplications() {
     const response = await applicationApi.list({
       status: searchForm.status ?? undefined,
       keyword: searchForm.keyword.trim() || undefined,
+      halted: searchForm.halted ?? undefined,
       page: pagination.page,
       size: pagination.size,
     })
@@ -127,6 +138,7 @@ function handleSearch() {
 function handleReset() {
   searchForm.status = null
   searchForm.keyword = ''
+  searchForm.halted = null
   pagination.page = 0
   syncQuery()
   fetchApplications()
@@ -152,6 +164,16 @@ async function openDetail(app: TransferApplication) {
   detailVisible.value = true
   selectedItemIds.value = []
   await fetchDetail(app.id)
+  // 打开含待审批明细且目标产线处于停台的申请单时给出明确提示
+  if (app.toLineHalted && (app.pendingCount ?? 0) > 0) {
+    ElMessageBox.alert(
+      `目标产线「${app.toLineName}」当前处于临时停台状态（停台原因：${app.toLineHaltReason || '未登记'}` +
+        `${app.toLineExpectedResumeTime ? '，预计复台：' + formatTime(app.toLineExpectedResumeTime) : ''}）。` +
+        `该申请单的待审批明细在审批通过时将被拦截，须待产线复台后方可继续划转；如需处理可先驳回。`,
+      '目标产线停台提示',
+      { confirmButtonText: '知道了', type: 'warning' }
+    )
+  }
 }
 
 async function fetchDetail(id: number) {
@@ -315,6 +337,14 @@ onMounted(() => {
             <option value="REJECTED">全部驳回</option>
           </select>
         </div>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-industrial-700">目标产线：</span>
+          <select v-model="searchForm.halted" class="input-industrial w-36" @change="handleSearch">
+            <option :value="null">全部</option>
+            <option :value="true">停台中</option>
+            <option :value="false">未停台</option>
+          </select>
+        </div>
         <div class="flex items-center gap-2 flex-1 max-w-md">
           <Search class="w-4 h-4 text-industrial-400" />
           <input
@@ -361,9 +391,19 @@ onMounted(() => {
               </td>
               <td class="font-mono text-sm text-industrial-500">{{ formatTime(app.applyTime) }}</td>
               <td>
-                <span class="px-2 py-1 bg-accent-100 text-accent-700 rounded text-xs font-medium">
-                  {{ app.toLineName }}
-                </span>
+                <div class="flex flex-col items-start gap-1">
+                  <span class="px-2 py-1 bg-accent-100 text-accent-700 rounded text-xs font-medium">
+                    {{ app.toLineName }}
+                  </span>
+                  <span
+                    v-if="app.toLineHalted"
+                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 cursor-help"
+                    :title="`停台原因：${app.toLineHaltReason || '未登记'}${app.toLineExpectedResumeTime ? '，预计复台：' + formatTime(app.toLineExpectedResumeTime) : ''}`"
+                  >
+                    <OctagonPause class="w-3 h-3" />
+                    停台·接收将被拦
+                  </span>
+                </div>
               </td>
               <td class="max-w-48">
                 <span class="text-sm text-industrial-600 truncate block" :title="app.reason">
@@ -484,6 +524,20 @@ onMounted(() => {
             <div class="col-span-2 md:col-span-4">
               <div class="text-industrial-400 text-xs mb-1">申请原因</div>
               <div class="text-industrial-700">{{ detail.application.reason }}</div>
+            </div>
+          </div>
+
+          <!-- 目标产线停台提示：待审批明细将在审批通过时被拦截 -->
+          <div
+            v-if="detail.application.toLineHalted && (detail.application.pendingCount ?? 0) > 0"
+            class="mt-3 flex items-start gap-2 rounded-industrial border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700"
+          >
+            <OctagonPause class="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div>
+              目标产线「{{ detail.application.toLineName }}」临时停台中
+              （停台原因：{{ detail.application.toLineHaltReason || '未登记' }}<template
+                v-if="detail.application.toLineExpectedResumeTime">，预计复台：{{ formatTime(detail.application.toLineExpectedResumeTime) }}</template>）。
+              待审批明细审批通过时将被拦截，请待产线复台后再处理，或先驳回并通知申请人。
             </div>
           </div>
         </div>

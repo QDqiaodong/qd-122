@@ -100,6 +100,14 @@ interface ProductionLine {
   lineCode: string;
   lineName: string;
   description: string;
+  haltStatus?: 'NORMAL' | 'HALTED';  // 临时停台状态
+  haltReason?: string;              // 停台原因
+  haltExpectedResumeTime?: string;  // 预计复台时间
+  haltOperator?: string;            // 停台操作人（调度员）
+  haltTime?: string;
+  resumeOperator?: string;          // 复台操作人
+  resumeTime?: string;
+  resumeConclusion?: string;        // 复台结论（必填）
   createTime: string;
 }
 
@@ -154,6 +162,9 @@ interface ApprovalRequest {
 | GET | `/api/lines` | 获取所有产线列表 | - | `ProductionLine[]` |
 | GET | `/api/lines/{id}` | 获取单个产线详情 | path: id | `ProductionLine` |
 | POST | `/api/lines` | 新增产线 | body: ProductionLine | `ProductionLine` |
+| GET | `/api/lines/{id}/halt-guard` | 登记停台前影响提示（停台状态+流向该产线的待审批申请量） | path: id | `LineHaltGuardResponse` |
+| POST | `/api/lines/{id}/halt` | 调度员登记临时停台（停台原因+预计复台时间） | body: LineHaltRequest | `ProductionLine` |
+| POST | `/api/lines/{id}/resume` | 产线复台（复台结论必填） | body: LineResumeRequest | `ProductionLine` |
 | GET | `/api/springs` | 分页查询弹簧档案 | query: page, size, lineId, keyword | `Page<SpringArchive>` |
 | GET | `/api/springs/group-by-line` | 按产线分组弹簧列表 | - | `Map<number, SpringArchive[]>` |
 | GET | `/api/springs/{id}` | 获取单个弹簧详情 | path: id | `SpringArchive` |
@@ -161,7 +172,7 @@ interface ApprovalRequest {
 | GET | `/api/springs/{id}/trace` | 查询弹簧划转轨迹 | path: id | `TransferRecord[]` |
 | GET | `/api/transfers` | 分页查询划转流水 | query: page, size, springId, lineId | `Page<TransferRecord>` |
 | POST | `/api/transfer-applications` | 提交划转申请（记录申请原因/申请人/时间） | body: SubmitApplicationRequest | `TransferApplication` |
-| GET | `/api/transfer-applications` | 分页查询划转申请 | query: page, size, status, keyword | `Page<TransferApplication>` |
+| GET | `/api/transfer-applications` | 分页查询划转申请 | query: page, size, status, halted(目标产线是否停台), keyword | `Page<TransferApplication>` |
 | GET | `/api/transfer-applications/{id}` | 申请详情（弹簧明细+审批状态+操作记录） | path: id | `ApplicationDetailResponse` |
 | POST | `/api/transfer-applications/approve` | 逐条/批量审批通过（通过后更新归属并生成流水） | body: ApprovalRequest | `ItemProcessResult[]` |
 | POST | `/api/transfer-applications/reject` | 逐条/批量驳回（驳回原因必填） | body: ApprovalRequest | `ItemProcessResult[]` |

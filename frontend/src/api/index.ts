@@ -6,6 +6,9 @@ import type {
   SealRequest,
   UnsealRequest,
   SealStatus,
+  LineHaltRequest,
+  LineResumeRequest,
+  LineHaltGuard,
   TransferRecord,
   TransferApplication,
   ApplicationDetail,
@@ -62,6 +65,12 @@ export const lineApi = {
   get: (id: number) => request.get<unknown, ApiResponse<ProductionLine>>(`/lines/${id}`),
   create: (data: Omit<ProductionLine, 'id' | 'createTime' | 'updateTime'>) =>
     request.post<unknown, ApiResponse<ProductionLine>>('/lines', data),
+  haltGuard: (id: number) =>
+    request.get<unknown, ApiResponse<LineHaltGuard>>(`/lines/${id}/halt-guard`),
+  halt: (id: number, data: LineHaltRequest) =>
+    request.post<unknown, ApiResponse<ProductionLine>>(`/lines/${id}/halt`, data),
+  resume: (id: number, data: LineResumeRequest) =>
+    request.post<unknown, ApiResponse<ProductionLine>>(`/lines/${id}/resume`, data),
 }
 
 export const springApi = {
@@ -84,7 +93,7 @@ export const transferApi = {
 }
 
 export const applicationApi = {
-  list: (params?: { status?: ApplicationStatus; keyword?: string; page?: number; size?: number }) =>
+  list: (params?: { status?: ApplicationStatus; keyword?: string; halted?: boolean; page?: number; size?: number }) =>
     request.get<unknown, ApiResponse<PageResponse<TransferApplication>>>('/transfer-applications', { params }),
   detail: (id: number) =>
     request.get<unknown, ApiResponse<ApplicationDetail>>(`/transfer-applications/${id}`),

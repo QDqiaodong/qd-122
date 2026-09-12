@@ -169,6 +169,11 @@ public class LineLoadService {
     public SimulationEstimateResponse simulateTransfer(List<Long> springIds, Long toLineId) {
         ProductionLine toLine = productionLineRepository.findById(toLineId)
                 .orElseThrow(() -> new RuntimeException("拟接收产线不存在"));
+        // 停台校验：临时停台期间该产线不能作为划转接收方，提示中给出停台原因与预计复台时间
+        if (toLine.isHalted()) {
+            throw new RuntimeException(toLine.getHaltSummary()
+                    + "，停台期间不能作为划转接收方，请待复台后再模拟或保存方案");
+        }
 
         List<Long> distinctIds = springIds.stream().distinct().toList();
         List<SpringArchive> allSprings = springArchiveRepository.findAll();
@@ -332,6 +337,15 @@ public class LineLoadService {
         stats.setDailyCapacityThreshold(line.getDailyCapacityThreshold());
         stats.setElasticMin(line.getElasticMin());
         stats.setElasticMax(line.getElasticMax());
+        // 停台标记随负载概览一并下发：看板列表可按是否停台筛选并展示停台原因/预计复台时间
+        stats.setHalted(line.isHalted());
+        stats.setHaltReason(line.getHaltReason());
+        stats.setHaltExpectedResumeTime(line.getHaltExpectedResumeTime());
+        stats.setHaltOperator(line.getHaltOperator());
+        stats.setHaltTime(line.getHaltTime());
+        stats.setResumeOperator(line.getResumeOperator());
+        stats.setResumeTime(line.getResumeTime());
+        stats.setResumeConclusion(line.getResumeConclusion());
         stats.setSpringCount(count);
         stats.setOutOfRangeCount(outOfRange);
         stats.setTrendDays(TREND_DAYS);

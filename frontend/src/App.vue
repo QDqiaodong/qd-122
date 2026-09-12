@@ -12,6 +12,7 @@ import {
   Menu,
   X,
   Factory,
+  OctagonPause,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -111,8 +112,16 @@ onMounted(async () => {
               :style="{ animationDelay: `${line.id * 50}ms` }"
             >
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-accent-500"></span>
+                <span
+                  class="w-2 h-2 rounded-full"
+                  :class="line.haltStatus === 'HALTED' ? 'bg-red-400' : 'bg-accent-500'"
+                ></span>
                 <span class="font-mono text-xs">{{ line.lineCode }}</span>
+                <OctagonPause
+                  v-if="line.haltStatus === 'HALTED'"
+                  class="w-3.5 h-3.5 text-red-400 ml-auto cursor-help"
+                  :title="`临时停台中：${line.haltReason || '原因未登记'}${line.haltExpectedResumeTime ? '，预计复台：' + String(line.haltExpectedResumeTime).replace('T', ' ').substring(0, 16) : ''}`"
+                />
               </div>
               <div class="ml-4 text-xs text-primary-400">{{ line.lineName }}</div>
             </li>

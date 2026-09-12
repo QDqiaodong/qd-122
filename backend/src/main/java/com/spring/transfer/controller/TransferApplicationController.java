@@ -27,10 +27,11 @@ public class TransferApplicationController {
     public ApiResponse<Page<TransferApplication>> findAll(
             @RequestParam(required = false) ApplicationStatus status,
             @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Boolean halted,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "applyTime"));
-        return ApiResponse.success(applicationService.findAll(status, keyword, pageable));
+        return ApiResponse.success(applicationService.findAll(status, keyword, halted, pageable));
     }
 
     @GetMapping("/{id}")

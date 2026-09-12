@@ -9,6 +9,7 @@ import {
   Users,
   FileText,
   AlertTriangle,
+  Ban,
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -28,9 +29,23 @@ const reason = ref('')
 const submitting = ref(false)
 
 const availableTargetLines = computed(() => {
-  if (props.selectedSprings.length === 0) return lineStore.lines
+  if (props.selectedSprings.length === 0) {
+    return lineStore.lines.filter((l) => l.haltStatus !== 'HALTED')
+  }
   const fromLineIds = new Set(props.selectedSprings.map((s) => s.currentLineId))
-  return lineStore.lines.filter((line) => !fromLineIds.has(line.id))
+  return lineStore.lines.filter((line) => !fromLineIds.has(line.id) && line.haltStatus !== 'HALTED')
+})
+
+/** 停台产线（排除弹簧当前所在产线）：不能作为划转接收方，明确展示停台原因 */
+const haltedTargetLines = computed(() => {
+  const fromLineIds = new Set(props.selectedSprings.map((s) => s.currentLineId))
+  return lineStore.lines.filter((line) => line.haltStatus === 'HALTED' && !fromLineIds.has(line.id))
+})
+
+/** 已选目标产线在弹窗打开期间变为停台时的兜底拦截 */
+const selectedTargetHalted = computed(() => {
+  if (!toLineId.value) return null
+  return lineStore.lines.find((l) => l.id === toLineId.value && l.haltStatus === 'HALTED') ?? null
 })
 
 const validSprings = computed(() => {
@@ -51,6 +66,16 @@ const invalidSprings = computed(() => {
 async function handleSubmit() {
   if (!toLineId.value) {
     ElMessage.warning('请选择目标产线')
+    return
+  }
+  if (selectedTargetHalted.value) {
+    ElMessage.warning({
+      message:
+        `目标产线「${selectedTargetHalted.value.lineName}」临时停台中` +
+        `（${selectedTargetHalted.value.haltReason || '停台原因未登记'}），不能作为划转接收方，请待复台后再提交`,
+      duration: 6000,
+      showClose: true,
+    })
     return
   }
   if (!applicant.value.trim()) {
@@ -153,6 +178,23 @@ watch(
                   <div class="text-xs text-industrial-400 truncate">{{ line.description }}</div>
                 </div>
               </label>
+            </div>
+            <!-- 停台产线：不能作为划转接收方，明确展示停台原因 -->
+            <div v-if="haltedTargetLines.length > 0" class="mt-2 space-y-1.5">
+              <div
+                v-for="line in haltedTargetLines"
+                :key="'halt-' + line.id"
+                class="flex items-center gap-2 p-2 rounded-industrial border border-red-200 bg-red-50"
+                title="停台期间不能作为划转接收方"
+              >
+                <Ban class="w-4 h-4 text-red-500 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-red-700 line-through decoration-red-300">{{ line.lineName }}</div>
+                  <div class="text-xs text-red-500 truncate">
+                    停台中：{{ line.haltReason || '原因未登记' }}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

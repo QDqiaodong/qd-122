@@ -54,4 +54,28 @@ public class LineLoadStats {
 
     /** 未关闭告警事件的处置状态：PENDING-待处理 / PROCESSING-处置中，无事件时为 null */
     private String openAlertStatus;
+
+    /** 产线当前是否临时停台（停台期间不能作为划转接收方） */
+    private boolean halted;
+
+    /** 停台原因，未停台时为 null */
+    private String haltReason;
+
+    /** 预计复台时间，未停台时为 null */
+    private java.time.LocalDateTime haltExpectedResumeTime;
+
+    /** 停台操作人 */
+    private String haltOperator;
+
+    /** 停台登记时间 */
+    private java.time.LocalDateTime haltTime;
+
+    /** 最近一次复台操作人 */
+    private String resumeOperator;
+
+    /** 最近一次复台时间 */
+    private java.time.LocalDateTime resumeTime;
+
+    /** 最近一次复台结论 */
+    private String resumeConclusion;
 }

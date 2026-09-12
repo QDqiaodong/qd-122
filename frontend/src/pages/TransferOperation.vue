@@ -14,6 +14,8 @@ import {
   FileText,
   Clock,
   Cog,
+  Ban,
+  OctagonPause,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -41,10 +43,27 @@ const selectedSprings = computed(() => {
 /** 封存中的弹簧（抽检不合格/待复测）不能进入划转申请 */
 const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
 
-const availableTargetLines = computed(() => {
-  if (selectedSprings.value.length === 0) return lineStore.lines
+/** 临时停台的产线不能作为划转接收方 */
+const haltedTargetLines = computed(() => {
+  if (selectedSprings.value.length === 0) return lineStore.lines.filter((l) => l.haltStatus === 'HALTED')
   const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
-  return lineStore.lines.filter((line) => !fromLineIds.has(line.id))
+  return lineStore.lines.filter(
+    (l) => l.haltStatus === 'HALTED' && !fromLineIds.has(l.id)
+  )
+})
+
+const availableTargetLines = computed(() => {
+  if (selectedSprings.value.length === 0) {
+    return lineStore.lines.filter((l) => l.haltStatus !== 'HALTED')
+  }
+  const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
+  return lineStore.lines.filter((line) => !fromLineIds.has(line.id) && line.haltStatus !== 'HALTED')
+})
+
+/** 已选中的目标产线在列表刷新后变为停台时，提交前兜底提示 */
+const selectedTargetHalted = computed(() => {
+  if (!applyForm.toLineId) return null
+  return lineStore.lines.find((l) => l.id === applyForm.toLineId && l.haltStatus === 'HALTED') ?? null
 })
 
 async function fetchSprings() {
@@ -117,6 +136,16 @@ async function handleSubmitApplication() {
   }
   if (!applyForm.reason.trim()) {
     ElMessage.warning('请输入申请原因')
+    return
+  }
+  if (selectedTargetHalted.value) {
+    ElMessage.warning({
+      message:
+        `目标产线「${selectedTargetHalted.value.lineName}」临时停台中` +
+        `（${selectedTargetHalted.value.haltReason || '停台原因未登记'}），不能作为划转接收方，请待复台后再提交`,
+      duration: 6000,
+      showClose: true,
+    })
     return
   }
 
@@ -335,6 +364,26 @@ onMounted(async () => {
                 请先选择弹簧
               </div>
             </div>
+            <!-- 停台产线：不能作为划转接收方，明确展示停台原因 -->
+            <div
+              v-if="haltedTargetLines.length > 0"
+              class="mt-2 space-y-1"
+            >
+              <div
+                v-for="line in haltedTargetLines"
+                :key="line.id"
+                class="flex items-center gap-2 p-2 rounded-industrial border border-red-200 bg-red-50 opacity-80"
+                title="停台期间不能作为划转接收方"
+              >
+                <Ban class="w-4 h-4 text-red-500 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-red-700 line-through decoration-red-300">{{ line.lineName }}</div>
+                  <div class="text-xs text-red-500 truncate">
+                    停台中：{{ line.haltReason || '原因未登记' }}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="space-y-4">
@@ -465,9 +514,19 @@ onMounted(async () => {
             class="flex items-center justify-between p-3 bg-industrial-50 rounded-industrial"
           >
             <div class="flex items-center gap-2">
-              <div class="w-2 h-2 rounded-full bg-accent-500"></div>
+              <div
+                class="w-2 h-2 rounded-full"
+                :class="line.haltStatus === 'HALTED' ? 'bg-red-500' : 'bg-accent-500'"
+              ></div>
               <div>
-                <div class="font-medium text-industrial-800 text-sm">{{ line.lineName }}</div>
+                <div class="font-medium text-industrial-800 text-sm flex items-center gap-1">
+                  {{ line.lineName }}
+                  <OctagonPause
+                    v-if="line.haltStatus === 'HALTED'"
+                    class="w-3.5 h-3.5 text-red-500 cursor-help"
+                    :title="`临时停台中：${line.haltReason || '原因未登记'}${line.haltExpectedResumeTime ? '，预计复台：' + formatTime(line.haltExpectedResumeTime) : ''}`"
+                  />
+                </div>
                 <div class="text-xs text-industrial-500 font-mono">{{ line.lineCode }}</div>
               </div>
             </div>

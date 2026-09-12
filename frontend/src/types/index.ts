@@ -5,6 +5,33 @@ export interface ApiResponse<T> {
   timestamp: number
 }
 
+/** 产线停台状态：正常 / 临时停台中 */
+export type LineHaltStatusType = 'NORMAL' | 'HALTED'
+
+/** 停台登记：调度员登记停台原因与预计复台时间 */
+export interface LineHaltRequest {
+  operator: string
+  reason: string
+  /** 预计复台时间，格式 yyyy-MM-dd HH:mm:ss */
+  expectedResumeTime: string
+}
+
+/** 复台：必须填写结论 */
+export interface LineResumeRequest {
+  operator: string
+  conclusion: string
+}
+
+/** 登记停台前的影响提示（待审批申请量） */
+export interface LineHaltGuard {
+  lineId: number
+  lineCode: string
+  lineName: string
+  halted: boolean
+  pendingItemCount: number
+  pendingApplicationCount: number
+}
+
 export interface ProductionLine {
   id: number
   lineCode: string
@@ -13,6 +40,15 @@ export interface ProductionLine {
   dailyCapacityThreshold?: number | null
   elasticMin?: number | null
   elasticMax?: number | null
+  /** 停台状态：NORMAL-正常 HALTED-停台中（停台期间不能作为划转接收方） */
+  haltStatus?: LineHaltStatusType
+  haltReason?: string | null
+  haltExpectedResumeTime?: string | null
+  haltOperator?: string | null
+  haltTime?: string | null
+  resumeOperator?: string | null
+  resumeTime?: string | null
+  resumeConclusion?: string | null
   createTime: string
 }
 
@@ -39,6 +75,15 @@ export interface LineLoadStats {
   openAlertEventId?: number | null
   /** 未关闭告警事件处置状态：PENDING / PROCESSING */
   openAlertStatus?: AlertHandleStatus | null
+  /** 产线当前是否临时停台（停台期间不能作为划转接收方） */
+  halted?: boolean
+  haltReason?: string | null
+  haltExpectedResumeTime?: string | null
+  haltOperator?: string | null
+  haltTime?: string | null
+  resumeOperator?: string | null
+  resumeTime?: string | null
+  resumeConclusion?: string | null
 }
 
 export interface LineLoadBoard {
@@ -192,6 +237,10 @@ export interface TransferApplication {
   pendingCount?: number
   approvedCount?: number
   rejectedCount?: number
+  /** 目标产线当前是否临时停台（列表/详情实时挂接） */
+  toLineHalted?: boolean
+  toLineHaltReason?: string | null
+  toLineExpectedResumeTime?: string | null
 }
 
 export interface TransferApplicationItem {

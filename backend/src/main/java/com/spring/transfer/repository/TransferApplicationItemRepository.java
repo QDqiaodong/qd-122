@@ -29,6 +29,14 @@ public interface TransferApplicationItemRepository extends JpaRepository<Transfe
 
     long countByApplicationIdAndStatus(Long applicationId, ItemStatus status);
 
+    /** 流向指定产线的待审批明细数：登记停台时用于提示存在待审批单 */
+    long countByToLineIdAndStatus(Long toLineId, ItemStatus status);
+
+    /** 流向指定产线且仍含待审批明细的申请单数（去重）：登记停台时给出涉及单量 */
+    @Query("SELECT COUNT(DISTINCT i.applicationId) FROM TransferApplicationItem i " +
+           "WHERE i.toLineId = :toLineId AND i.status = :status")
+    long countDistinctApplicationByToLineIdAndStatus(Long toLineId, ItemStatus status);
+
     /** 轻量预读（不加载实体），拿到所属申请单等信息后再加锁 */
     @Query("SELECT i.applicationId AS applicationId, i.springCode AS springCode, i.status AS status, i.approver AS approver " +
            "FROM TransferApplicationItem i WHERE i.id = :id")
