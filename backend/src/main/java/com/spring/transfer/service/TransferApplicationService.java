@@ -349,7 +349,7 @@ public class TransferApplicationService {
 
     /**
      * 单条明细审批通过，由 approve() 在独立事务中调用。
-     * 锁顺序固定为：申请单行 -> 明细行 -> 弹簧档案行，与其他路径保持一致，避免死锁。
+     * 锁顺序固定为：申请单行 -> 明细行 -> 弹簧档案行 -> 目标产线行，与其他路径保持一致，避免死锁。
      */
     private ItemProcessResult doApprove(Long itemId, String approver) {
         // 投影预读（不加载受管实体），仅用于不存在/重复操作的快速失败；加锁后必须重新读取最新状态
@@ -388,14 +388,15 @@ public class TransferApplicationService {
             return ItemProcessResult.fail(itemId, item.getSpringCode(),
                     "弹簧处于封存状态（" + spring.getSealSummary() + "），封存期间不能划转，请先解封");
         }
-        // 申请提交后目标产线被登记停台的，审批拦截，停台期间该产线不能作为划转接收方
-        ProductionLine toLine = productionLineRepository.findById(item.getToLineId()).orElse(null);
+        // 停台拦截按当前停台状态重算：悲观锁当前读，与停台/复台写串行化，
+        // 复台提交后审批立即可见 NORMAL 并放行剩余待批行；
+        // 普通快照读在 REPEATABLE READ 下沿用事务开始时的读视图，可能拿到复台前的旧停台标记
+        ProductionLine toLine = productionLineRepository.findByIdForUpdate(item.getToLineId()).orElse(null);
         if (toLine == null) {
             return ItemProcessResult.fail(itemId, item.getSpringCode(), "目标产线不存在");
         }
         if (toLine.isHalted()) {
-            return ItemProcessResult.fail(itemId, item.getSpringCode(),
-                    toLine.getHaltSummary() + "，停台期间不能接收划转，请待复台后再审批通过");
+            return ItemProcessResult.fail(itemId, item.getSpringCode(), haltBlockMessage(toLine));
         }
 
         // 原子状态流转（双保险），防止并发审批重复生效
@@ -526,6 +527,24 @@ public class TransferApplicationService {
                         "申请单已结案（" + applicationStatusText(status) + "），加急标记自动解除"));
             }
         }
+    }
+
+    /**
+     * 停台拦截的明确原因：附停台登记时间；若该产线存在早于本次停台的复台记录
+     * （审批人在操作记录里看到的"已复台"是上一轮记录），明确指出本次停台系复台后
+     * 重新登记、拦截以当前停台状态为准，避免拦截结果与复台记录对不上时无从排查
+     */
+    private String haltBlockMessage(ProductionLine line) {
+        StringBuilder sb = new StringBuilder(line.getHaltSummary());
+        if (line.getHaltTime() != null) {
+            sb.append("，停台登记时间：").append(formatTime(line.getHaltTime()));
+        }
+        if (line.getResumeTime() != null && line.getHaltTime() != null
+                && line.getResumeTime().isBefore(line.getHaltTime())) {
+            sb.append("；该产线曾于 ").append(formatTime(line.getResumeTime()))
+                    .append(" 复台，本次停台为复台后重新登记，拦截以当前停台状态为准");
+        }
+        return sb.append("，停台期间不能接收划转，请待复台后再审批通过").toString();
     }
 
     private void fillItemCounts(TransferApplication application) {

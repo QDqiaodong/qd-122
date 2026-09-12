@@ -34,6 +34,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -124,7 +125,7 @@ class ProductionLineHaltTest {
         when(springArchiveRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(spring));
 
         // 申请提交后目标产线被调度员登记停台
-        when(productionLineRepository.findById(4L))
+        when(productionLineRepository.findByIdForUpdate(4L))
                 .thenReturn(Optional.of(haltedLine(4L, "装配四号线", "缺料停线",
                         LocalDateTime.of(2026, 9, 12, 8, 0))));
 
@@ -140,6 +141,114 @@ class ProductionLineHaltTest {
         assertEquals("SP-2024-0001", result.getSpringCode());
         assertTrue(result.getMessage().contains("停台"));
         assertTrue(result.getMessage().contains("缺料停线"));
+        assertTrue(result.getMessage().contains("不能接收划转"));
+    }
+
+    @Test
+    void approveRecalculatesHaltByCurrentStateAndPassesAfterResume() {
+        // 目标产线曾停台但已复台：审批按当前停台状态重算（悲观锁当前读），剩余待批行可继续通过
+        TransferApplicationItemRepository.ItemPreview preview =
+                mock(TransferApplicationItemRepository.ItemPreview.class);
+        when(preview.getApplicationId()).thenReturn(10L);
+        when(preview.getStatus()).thenReturn(ItemStatus.PENDING);
+        when(itemRepository.findPreviewById(5L)).thenReturn(Optional.of(preview));
+
+        TransferApplication application = new TransferApplication();
+        application.setId(10L);
+        application.setApplicationNo("TA20260912000001");
+        application.setApplicant("张三");
+        when(applicationRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(application));
+
+        TransferApplicationItem item = new TransferApplicationItem();
+        item.setId(5L);
+        item.setApplicationId(10L);
+        item.setSpringId(1L);
+        item.setSpringCode("SP-2024-0001");
+        item.setToLineId(4L);
+        item.setToLineName("装配四号线");
+        item.setStatus(ItemStatus.PENDING);
+        when(itemRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(item));
+
+        SpringArchive spring = spring(1L, "SP-2024-0001");
+        when(springArchiveRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(spring));
+        when(springArchiveRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // 当前状态：已复台（NORMAL，产线上保留复台记录）
+        ProductionLine resumedLine = line(4L, "装配四号线");
+        resumedLine.setResumeOperator("王五");
+        resumedLine.setResumeTime(LocalDateTime.now().minusMinutes(30));
+        resumedLine.setResumeConclusion("设备检修完成，试产合格，恢复生产");
+        when(productionLineRepository.findByIdForUpdate(4L)).thenReturn(Optional.of(resumedLine));
+
+        ProductionLine fromLine = line(1L, "装配一号线");
+        when(productionLineRepository.findById(1L)).thenReturn(Optional.of(fromLine));
+
+        when(itemRepository.approveIfPending(eq(5L), any(), any(), eq(ItemStatus.APPROVED), eq(ItemStatus.PENDING)))
+                .thenReturn(1);
+        when(transferRecordRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(itemRepository.countByApplicationIdAndStatusForUpdate(10L, ItemStatus.PENDING)).thenReturn(0L);
+        when(itemRepository.countByApplicationIdAndStatusForUpdate(10L, ItemStatus.APPROVED)).thenReturn(1L);
+        when(itemRepository.countByApplicationIdAndStatusForUpdate(10L, ItemStatus.REJECTED)).thenReturn(0L);
+
+        ApprovalRequest request = new ApprovalRequest();
+        request.setItemIds(List.of(5L));
+        request.setApprover("李四");
+
+        List<ItemProcessResult> results = applicationService.approve(request);
+
+        assertEquals(1, results.size());
+        assertTrue(results.get(0).isSuccess());
+        assertTrue(results.get(0).getMessage().contains("审批通过"));
+    }
+
+    @Test
+    void approveBlockMessageExplainsReHaltAfterResume() {
+        // 复台后又重新登记停台：拦截文案必须给出明确原因——附上停台登记时间，
+        // 并指出本次停台系复台后重新登记，与操作记录里的复台记录对得上
+        TransferApplicationItemRepository.ItemPreview preview =
+                mock(TransferApplicationItemRepository.ItemPreview.class);
+        when(preview.getApplicationId()).thenReturn(10L);
+        when(preview.getStatus()).thenReturn(ItemStatus.PENDING);
+        when(itemRepository.findPreviewById(5L)).thenReturn(Optional.of(preview));
+
+        TransferApplication application = new TransferApplication();
+        application.setId(10L);
+        when(applicationRepository.findByIdForUpdate(10L)).thenReturn(Optional.of(application));
+
+        TransferApplicationItem item = new TransferApplicationItem();
+        item.setId(5L);
+        item.setApplicationId(10L);
+        item.setSpringId(1L);
+        item.setSpringCode("SP-2024-0001");
+        item.setToLineId(4L);
+        item.setToLineName("装配四号线");
+        item.setStatus(ItemStatus.PENDING);
+        when(itemRepository.findByIdForUpdate(5L)).thenReturn(Optional.of(item));
+
+        SpringArchive spring = spring(1L, "SP-2024-0001");
+        when(springArchiveRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(spring));
+
+        // 上一轮停台已于 08:00 复台，10:00 又登记了新一轮停台
+        ProductionLine reHalted = haltedLine(4L, "装配四号线", "二次缺料",
+                LocalDateTime.of(2026, 9, 13, 8, 0));
+        reHalted.setHaltTime(LocalDateTime.of(2026, 9, 12, 10, 0));
+        reHalted.setResumeOperator("王五");
+        reHalted.setResumeTime(LocalDateTime.of(2026, 9, 12, 8, 0));
+        reHalted.setResumeConclusion("缺料已补齐，复台");
+        when(productionLineRepository.findByIdForUpdate(4L)).thenReturn(Optional.of(reHalted));
+
+        ApprovalRequest request = new ApprovalRequest();
+        request.setItemIds(List.of(5L));
+        request.setApprover("李四");
+
+        List<ItemProcessResult> results = applicationService.approve(request);
+
+        assertEquals(1, results.size());
+        ItemProcessResult result = results.get(0);
+        assertFalse(result.isSuccess());
+        assertTrue(result.getMessage().contains("停台登记时间：2026-09-12 10:00:00"));
+        assertTrue(result.getMessage().contains("2026-09-12 08:00:00 复台"));
+        assertTrue(result.getMessage().contains("复台后重新登记"));
         assertTrue(result.getMessage().contains("不能接收划转"));
     }
 

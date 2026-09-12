@@ -228,7 +228,7 @@ class TransferApplicationUrgentTest {
         ProductionLine fromLine = line(1L, "装配一号线");
         ProductionLine toLine = line(2L, "装配二号线");
         when(productionLineRepository.findById(1L)).thenReturn(Optional.of(fromLine));
-        when(productionLineRepository.findById(2L)).thenReturn(Optional.of(toLine));
+        when(productionLineRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(toLine));
 
         when(itemRepository.approveIfPending(eq(5L), any(), any(), eq(ItemStatus.APPROVED), eq(ItemStatus.PENDING)))
                 .thenReturn(1);
@@ -287,7 +287,7 @@ class TransferApplicationUrgentTest {
         ProductionLine fromLine = line(1L, "装配一号线");
         ProductionLine toLine = line(2L, "装配二号线");
         when(productionLineRepository.findById(1L)).thenReturn(Optional.of(fromLine));
-        when(productionLineRepository.findById(2L)).thenReturn(Optional.of(toLine));
+        when(productionLineRepository.findByIdForUpdate(2L)).thenReturn(Optional.of(toLine));
 
         when(itemRepository.approveIfPending(eq(5L), any(), any(), eq(ItemStatus.APPROVED), eq(ItemStatus.PENDING)))
                 .thenReturn(1);

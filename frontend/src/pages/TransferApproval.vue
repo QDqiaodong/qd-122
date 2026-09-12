@@ -180,11 +180,13 @@ async function openDetail(app: TransferApplication) {
   detailVisible.value = true
   selectedItemIds.value = []
   await fetchDetail(app.id)
-  // 打开含待审批明细且目标产线处于停台的申请单时给出明确提示
-  if (app.toLineHalted && (app.pendingCount ?? 0) > 0) {
+  // 停台提示以刚拉取的详情为准：列表行的停台标记是列表加载时刻的状态，
+  // 产线复台后仍按旧标记提示会与当前拦截口径不一致
+  const current = detail.value?.application
+  if (current?.toLineHalted && (current.pendingCount ?? 0) > 0) {
     ElMessageBox.alert(
-      `目标产线「${app.toLineName}」当前处于临时停台状态（停台原因：${app.toLineHaltReason || '未登记'}` +
-        `${app.toLineExpectedResumeTime ? '，预计复台：' + formatTime(app.toLineExpectedResumeTime) : ''}）。` +
+      `目标产线「${current.toLineName}」当前处于临时停台状态（停台原因：${current.toLineHaltReason || '未登记'}` +
+        `${current.toLineExpectedResumeTime ? '，预计复台：' + formatTime(current.toLineExpectedResumeTime) : ''}）。` +
         `该申请单的待审批明细在审批通过时将被拦截，须待产线复台后方可继续划转；如需处理可先驳回。`,
       '目标产线停台提示',
       { confirmButtonText: '知道了', type: 'warning' }
@@ -419,6 +421,15 @@ onMounted(() => {
       <div class="flex items-center gap-2 mb-4">
         <ClipboardCheck class="w-5 h-5 text-primary-600" />
         <h2 class="text-lg font-bold text-industrial-800">划转申请审批</h2>
+        <button
+          class="btn-industrial-outline text-xs px-3 py-1 ml-auto"
+          :disabled="loading"
+          title="重新拉取列表与详情，停台拦截按最新停台状态重算"
+          @click="handleRefresh"
+        >
+          <RefreshCw class="w-3.5 h-3.5 inline mr-1" :class="{ 'animate-spin': loading }" />
+          刷新
+        </button>
       </div>
       <div class="flex flex-wrap items-center gap-4">
         <div class="flex items-center gap-2">
