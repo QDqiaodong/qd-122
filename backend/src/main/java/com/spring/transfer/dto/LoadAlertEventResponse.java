@@ -33,6 +33,12 @@ public class LoadAlertEventResponse {
     private String closeRemark;
     private String closedBy;
 
+    /** 超载处置人（产线超载时完成处置必填） */
+    private String disposePerson;
+
+    /** 超载复核工号（产线超载时完成处置必填） */
+    private String reviewEmployeeNo;
+
     private LocalDateTime triggerTime;
     private LocalDateTime confirmTime;
     private LocalDateTime closeTime;

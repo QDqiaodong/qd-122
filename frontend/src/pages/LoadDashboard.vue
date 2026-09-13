@@ -252,6 +252,14 @@ function alertStatusText(status?: AlertHandleStatus | null) {
   return ''
 }
 
+/**
+ * 超载且告警未完成处置（存在未关闭事件）时禁止修改日承载阈值，
+ * 与后端 updateThreshold 的硬拦截保持一致：必须先填齐处置人/复核工号完成处置。
+ */
+function thresholdBlocked(line: LineLoadStats): boolean {
+  return line.status === 'OVERLOAD' && !!line.openAlertEventId
+}
+
 function handleActionText(action: string) {
   return {
     CONFIRM: '确认处置',
@@ -526,9 +534,15 @@ onMounted(fetchBoard)
                   <ClipboardCheck class="w-4 h-4" />
                 </button>
                 <button
-                  class="p-1.5 text-industrial-400 hover:text-primary-700 hover:bg-primary-50 rounded-industrial"
-                  title="维护阈值"
-                  @click.stop="openThreshold(line)"
+                  class="p-1.5 rounded-industrial disabled:cursor-not-allowed disabled:opacity-40"
+                  :class="thresholdBlocked(line)
+                    ? 'text-industrial-300'
+                    : 'text-industrial-400 hover:text-primary-700 hover:bg-primary-50'"
+                  :title="thresholdBlocked(line)
+                    ? '超载告警尚未完成处置（须填写处置人与复核工号），完成前不能修改日承载阈值'
+                    : '维护阈值'"
+                  :disabled="thresholdBlocked(line)"
+                  @click.stop="!thresholdBlocked(line) && openThreshold(line)"
                 >
                   <Settings2 class="w-4 h-4" />
                 </button>
@@ -624,6 +638,34 @@ onMounted(fetchBoard)
               </span>
             </div>
 
+            <!-- 最近一次超载处置：处置人 + 复核工号（完成处置时必填） -->
+            <div
+              v-if="line.lastOverloadDisposePerson || line.lastOverloadReviewEmployeeNo"
+              class="mt-2 flex items-center gap-1.5 text-xs"
+            >
+              <ClipboardCheck class="w-3.5 h-3.5 text-primary-600 flex-shrink-0" />
+              <span class="text-industrial-500">
+                最近超载处置
+                <span v-if="line.lastOverloadDisposePerson" class="font-medium text-industrial-700">
+                  · 处置人 {{ line.lastOverloadDisposePerson }}
+                </span>
+                <span v-if="line.lastOverloadReviewEmployeeNo">
+                  · 复核工号 <span class="font-mono font-medium text-industrial-700">{{ line.lastOverloadReviewEmployeeNo }}</span>
+                </span>
+              </span>
+              <span v-if="line.lastOverloadDisposeTime" class="ml-auto font-mono text-industrial-400">
+                {{ formatTime(line.lastOverloadDisposeTime) }}
+              </span>
+            </div>
+            <!-- 超载未完成处置：阈值锁定提示 -->
+            <div
+              v-if="thresholdBlocked(line)"
+              class="mt-2 px-2 py-1 rounded-industrial bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-1.5"
+            >
+              <OctagonAlert class="w-3.5 h-3.5 flex-shrink-0" />
+              超载告警处置未完成，日承载阈值已锁定；完成处置须填写处置人与复核工号
+            </div>
+
             <!-- 触发原因预览 -->
             <div v-if="line.reasons.length > 0" class="mt-3 pt-3 border-t border-industrial-200 space-y-1">
               <div
@@ -701,7 +743,14 @@ onMounted(fetchBoard)
               <OctagonPause v-else class="w-4 h-4 inline mr-1" />
               {{ drawerHalted ? '复台（填结论）' : '登记停台' }}
             </button>
-            <button class="btn-industrial-outline" @click="openThreshold(selectedLine)">
+            <button
+              class="btn-industrial-outline disabled:opacity-40 disabled:cursor-not-allowed"
+              :disabled="!drawerStats || thresholdBlocked(drawerStats)"
+              :title="drawerStats && thresholdBlocked(drawerStats)
+                ? '超载告警尚未完成处置（须填写处置人与复核工号），完成前不能修改日承载阈值'
+                : '维护阈值'"
+              @click="drawerStats && !thresholdBlocked(drawerStats) && openThreshold(selectedLine)"
+            >
               <Settings2 class="w-4 h-4 inline mr-1" />
               维护阈值
             </button>
@@ -831,6 +880,46 @@ onMounted(fetchBoard)
               <p v-else class="mt-2 text-sm text-industrial-400">
                 该产线暂无开班点检记录，未点检产线不能作为调拨模拟接收方
               </p>
+            </div>
+
+            <!-- 最近一次超载处置：处置人与复核工号（完成时必填） -->
+            <div
+              v-if="drawerStats?.lastOverloadDisposePerson || drawerStats?.lastOverloadReviewEmployeeNo"
+              class="card-industrial p-4 border-l-4 border-l-primary-700"
+            >
+              <div class="flex items-center gap-2">
+                <ClipboardCheck class="w-4 h-4 text-primary-700" />
+                <h3 class="font-semibold text-industrial-800">最近一次超载处置</h3>
+                <span class="ml-auto text-xs text-industrial-400 font-mono">
+                  {{ formatTime(drawerStats.lastOverloadDisposeTime) }}
+                </span>
+              </div>
+              <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">处置人</div>
+                  <div class="mt-0.5 font-medium text-industrial-800">
+                    {{ drawerStats.lastOverloadDisposePerson || '-' }}
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">复核工号</div>
+                  <div class="mt-0.5 font-mono font-medium text-industrial-800">
+                    {{ drawerStats.lastOverloadReviewEmployeeNo || '-' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 超载未完成处置：阈值锁定 -->
+            <div
+              v-if="drawerStats && thresholdBlocked(drawerStats)"
+              class="card-industrial p-4 border-2 border-red-300 bg-red-50/50 text-sm text-red-700 flex items-start gap-2"
+            >
+              <OctagonAlert class="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                该产线当前超载且告警尚未完成处置，日承载阈值已锁定不能修改；
+                请先在下方告警事件中点「标记处理完成」，填写处置人与复核工号完成闭环。
+              </span>
             </div>
 
             <!-- 指标概览 -->
@@ -1020,6 +1109,7 @@ onMounted(fetchBoard)
                       <th>状态</th>
                       <th>责任人</th>
                       <th>处置计划</th>
+                      <th>处置人/复核工号</th>
                       <th>关闭方式/时间</th>
                     </tr>
                   </thead>

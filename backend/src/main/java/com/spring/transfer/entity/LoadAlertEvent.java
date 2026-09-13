@@ -72,6 +72,20 @@ public class LoadAlertEvent {
     @Column(name = "closed_by", length = 32)
     private String closedBy;
 
+    /**
+     * 超载处置人：超载事件标记处理完成时必填，记录现场处置闭环的责任人。
+     * 看板按产线展示最近一次超载处置的处置人。
+     */
+    @Column(name = "dispose_person", length = 32)
+    private String disposePerson;
+
+    /**
+     * 超载复核工号：超载事件标记处理完成时必填，由复核人填写自己的工号，
+     * 与处置人相互制衡；缺处置人或复核工号任一项都不能完成处置。
+     */
+    @Column(name = "review_employee_no", length = 32)
+    private String reviewEmployeeNo;
+
     @Column(name = "trigger_time", nullable = false)
     private LocalDateTime triggerTime;
 

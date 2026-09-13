@@ -90,4 +90,13 @@ public class LineLoadStats {
 
     /** 当日是否已完成开班点检（当日未点检的产线不能作为调拨模拟接收方） */
     private boolean inspectedToday;
+
+    /** 最近一次超载处置的处置人（超载事件完成时必填），从未完成过超载处置为 null */
+    private String lastOverloadDisposePerson;
+
+    /** 最近一次超载处置的复核工号 */
+    private String lastOverloadReviewEmployeeNo;
+
+    /** 最近一次超载处置完成时间 */
+    private java.time.LocalDateTime lastOverloadDisposeTime;
 }

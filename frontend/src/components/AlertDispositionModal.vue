@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { LoadAlertEvent } from '@/types'
 import { loadAlertApi } from '@/api'
-import { Siren, X, UserRound, ClipboardList, MessageSquareText } from 'lucide-vue-next'
+import { Siren, X, UserRound, ClipboardList, MessageSquareText, BadgeCheck } from 'lucide-vue-next'
 
 const props = defineProps<{
   visible: boolean
@@ -24,6 +24,8 @@ const form = reactive({
   responsiblePerson: '',
   handlePlan: '',
   remark: '',
+  disposePerson: '',
+  reviewEmployeeNo: '',
 })
 
 const dialogVisible = computed({
@@ -32,6 +34,10 @@ const dialogVisible = computed({
 })
 
 const isResolve = computed(() => props.mode === 'resolve')
+// 处置时产线仍超载：完成必须填处置人与复核工号（与后端硬校验同一口径）
+const overloadRequired = computed(
+  () => isResolve.value && props.event?.currentLineStatus === 'OVERLOAD',
+)
 const title = computed(() => {
   if (!props.event) return '告警处置'
   const line = `${props.event.lineName}（${props.event.lineCode}）`
@@ -50,6 +56,9 @@ watch(
       form.responsiblePerson = props.event.responsiblePerson ?? ''
       form.handlePlan = props.event.handlePlan ?? ''
       form.remark = ''
+      // 回填最近一次超载处置信息，便于同轮再次处置时沿用/核对
+      form.disposePerson = props.event.disposePerson ?? ''
+      form.reviewEmployeeNo = props.event.reviewEmployeeNo ?? ''
     }
   }
 )
@@ -64,6 +73,16 @@ async function handleSubmit() {
     if (!form.remark.trim()) {
       ElMessage.warning('请填写处理说明')
       return
+    }
+    if (overloadRequired.value) {
+      if (!form.disposePerson.trim()) {
+        ElMessage.warning('产线当前仍超载，完成处置必须填写处置人')
+        return
+      }
+      if (!form.reviewEmployeeNo.trim()) {
+        ElMessage.warning('产线当前仍超载，完成处置必须填写复核工号')
+        return
+      }
     }
   } else {
     if (!form.responsiblePerson.trim()) {
@@ -84,6 +103,8 @@ async function handleSubmit() {
       responsiblePerson: form.responsiblePerson.trim() || undefined,
       handlePlan: form.handlePlan.trim() || undefined,
       remark: form.remark.trim() || undefined,
+      disposePerson: overloadRequired.value ? form.disposePerson.trim() || undefined : undefined,
+      reviewEmployeeNo: overloadRequired.value ? form.reviewEmployeeNo.trim() || undefined : undefined,
     }
     const response = isResolve.value
       ? await loadAlertApi.resolve(props.event.id, payload)
@@ -203,26 +224,73 @@ function formatTime(time?: string | null) {
 
       <!-- 关闭：处理说明 -->
       <div v-else>
-        <label class="block text-sm font-medium text-industrial-700 mb-1">
-          <MessageSquareText class="w-4 h-4 inline mr-1" />
-          处理说明 <span class="text-red-500">*</span>
-        </label>
-        <textarea
-          v-model="form.remark"
-          rows="3"
-          class="input-industrial"
-          placeholder="说明已采取的处置措施与结果；若产线仍预警/超载，同一轮异常期间不再重复告警，恢复后再次触发会生成新事件"
-        ></textarea>
+        <!-- 产线仍超载：处置人与复核工号缺一不可，后端同样强校验 -->
+        <div
+          v-if="overloadRequired"
+          class="p-3 rounded-industrial border bg-red-50 border-red-200 text-xs text-red-700 flex items-start gap-2"
+        >
+          <BadgeCheck class="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            该产线当前仍为超载状态，完成处置必须填写处置人与复核工号，缺一项不能完成；
+            完成前该产线的日承载阈值也不能修改。
+          </span>
+        </div>
+        <div v-if="overloadRequired" class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-industrial-700 mb-1">
+              <UserRound class="w-4 h-4 inline mr-1" />
+              处置人 <span class="text-red-500">*</span>
+            </label>
+            <input
+              v-model="form.disposePerson"
+              class="input-industrial"
+              placeholder="现场处置闭环责任人"
+            />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-industrial-700 mb-1">
+              <BadgeCheck class="w-4 h-4 inline mr-1" />
+              复核工号 <span class="text-red-500">*</span>
+            </label>
+            <input
+              v-model="form.reviewEmployeeNo"
+              class="input-industrial"
+              placeholder="复核人本人的工号"
+            />
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-industrial-700 mb-1">
+            <MessageSquareText class="w-4 h-4 inline mr-1" />
+            处理说明 <span class="text-red-500">*</span>
+          </label>
+          <textarea
+            v-model="form.remark"
+            rows="3"
+            class="input-industrial"
+            placeholder="说明已采取的处置措施与结果；若产线仍预警/超载，同一轮异常期间不再重复告警，恢复后再次触发会生成新事件"
+          ></textarea>
+        </div>
       </div>
 
       <!-- 已有处置信息 -->
-      <div v-if="event.responsiblePerson || event.handlePlan" class="text-xs text-industrial-500 space-y-1 bg-industrial-50 rounded-industrial p-3">
+      <div v-if="event.responsiblePerson || event.handlePlan || event.disposePerson || event.reviewEmployeeNo" class="text-xs text-industrial-500 space-y-1 bg-industrial-50 rounded-industrial p-3">
         <div v-if="event.responsiblePerson">
           已确认责任人：<span class="font-medium text-industrial-700">{{ event.responsiblePerson }}</span>
           <span class="text-industrial-400">（{{ formatTime(event.confirmTime) }}）</span>
         </div>
         <div v-if="event.handlePlan">
           处置计划：<span class="text-industrial-700">{{ event.handlePlan }}</span>
+        </div>
+        <div v-if="event.disposePerson || event.reviewEmployeeNo" class="flex items-center gap-3 pt-1">
+          <BadgeCheck class="w-3.5 h-3.5 text-primary-600" />
+          <span v-if="event.disposePerson">
+            上次超载处置人：<span class="font-medium text-industrial-700">{{ event.disposePerson }}</span>
+          </span>
+          <span v-if="event.reviewEmployeeNo">
+            复核工号：<span class="font-mono font-medium text-industrial-700">{{ event.reviewEmployeeNo }}</span>
+          </span>
+          <span class="text-industrial-400">{{ formatTime(event.closeTime) }}</span>
         </div>
       </div>
     </div>

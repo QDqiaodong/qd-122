@@ -31,4 +31,12 @@ public class AlertDispositionRequest {
     /** 备注；CONFIRM 时可选（追加备注），RESOLVE 时必填（处理说明） */
     @Size(max = 512, message = "备注不能超过512个字符")
     private String remark;
+
+    /** 处置人：产线当前超载时 RESOLVE 必填（现场处置闭环责任人） */
+    @Size(max = 32, message = "处置人不能超过32个字符")
+    private String disposePerson;
+
+    /** 复核工号：产线当前超载时 RESOLVE 必填（复核人本人的工号） */
+    @Size(max = 32, message = "复核工号不能超过32个字符")
+    private String reviewEmployeeNo;
 }

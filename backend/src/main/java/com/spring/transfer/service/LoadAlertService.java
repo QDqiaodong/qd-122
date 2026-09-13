@@ -191,6 +191,31 @@ public class LoadAlertService {
         return eventRepository.findByActiveLineId(lineId);
     }
 
+    /**
+     * 把每线最近一次「已完成超载处置」的处置人/复核工号挂到看板概览项上。
+     * 只取带处置人记录的事件（老数据或预警事件不带这两项），按关闭时间倒序每线取第一条。
+     */
+    public void attachLatestOverloadDisposition(List<LineLoadStats> statsList) {
+        List<Long> lineIds = statsList.stream().map(LineLoadStats::getLineId).toList();
+        if (lineIds.isEmpty()) {
+            return;
+        }
+        Map<Long, LoadAlertEvent> latestByLine = eventRepository
+                .findByLineIdInAndStatusAndAlertLevelOrderByCloseTimeDescIdDesc(
+                        lineIds, AlertStatus.RESOLVED, LoadStatus.OVERLOAD.name())
+                .stream()
+                .filter(e -> e.getDisposePerson() != null && !e.getDisposePerson().isBlank())
+                .collect(Collectors.toMap(LoadAlertEvent::getLineId, Function.identity(), (a, b) -> a));
+        for (LineLoadStats stats : statsList) {
+            LoadAlertEvent latest = latestByLine.get(stats.getLineId());
+            if (latest != null) {
+                stats.setLastOverloadDisposePerson(latest.getDisposePerson());
+                stats.setLastOverloadReviewEmployeeNo(latest.getReviewEmployeeNo());
+                stats.setLastOverloadDisposeTime(latest.getCloseTime());
+            }
+        }
+    }
+
     public List<LoadAlertEvent> findLineEvents(Long lineId, AlertStatus status) {
         if (status != null) {
             return eventRepository.findByLineIdAndStatusOrderByTriggerTimeDescIdDesc(lineId, status);
@@ -266,11 +291,25 @@ public class LoadAlertService {
     /**
      * 标记处理完成并关闭事件。若处置时产线仍处于预警/超载，保留手动关闭抑制标记，
      * 同一轮持续异常期间不重复建事件；负载恢复正常后标记清除，再次触发会生成新事件。
+     *
+     * 处置时产线仍超载的，必须填写处置人与复核工号（二者缺一不可），
+     * 防止超载未现场闭环、未经复核就被点掉；这两项随事件持久化并在看板展示最近一次。
      */
     public LoadAlertEvent resolve(Long eventId, AlertDispositionRequest request, String currentLineStatus) {
         String remark = trim(request.getRemark());
         if (remark.isEmpty()) {
             throw new RuntimeException("请填写处理说明后再关闭告警");
+        }
+        boolean currentlyOverload = LoadStatus.OVERLOAD.name().equals(currentLineStatus);
+        String disposePerson = trim(request.getDisposePerson());
+        String reviewEmployeeNo = trim(request.getReviewEmployeeNo());
+        if (currentlyOverload) {
+            if (disposePerson.isEmpty()) {
+                throw new RuntimeException("产线当前仍超载，完成处置必须填写处置人");
+            }
+            if (reviewEmployeeNo.isEmpty()) {
+                throw new RuntimeException("产线当前仍超载，完成处置必须填写复核工号");
+            }
         }
         String operator = request.getOperator().trim();
 
@@ -282,10 +321,17 @@ public class LoadAlertService {
             }
             boolean stillAbnormal = !LoadStatus.NORMAL.name().equals(currentLineStatus);
             event.setRemark(remark);
+            if (currentlyOverload) {
+                event.setDisposePerson(disposePerson);
+                event.setReviewEmployeeNo(reviewEmployeeNo);
+            }
             closeEvent(event, "MANUAL", operator, remark, stillAbnormal);
+            String dispositionSuffix = currentlyOverload
+                    ? "；处置人：" + disposePerson + "；复核工号：" + reviewEmployeeNo
+                    : "";
             handleLogRepository.save(new LoadAlertHandleLog(eventId, "RESOLVE", operator,
                     AlertStatus.RESOLVED.name(),
-                    "调度员标记处理完成：" + remark
+                    "调度员标记处理完成：" + remark + dispositionSuffix
                             + (stillAbnormal ? "（处置时产线仍为"
                             + ("OVERLOAD".equals(currentLineStatus) ? "超载" : "预警")
                             + "状态，同一轮异常期间不再重复告警）" : "")));
@@ -325,6 +371,8 @@ public class LoadAlertService {
         view.setCloseType(event.getCloseType());
         view.setCloseRemark(event.getCloseRemark());
         view.setClosedBy(event.getClosedBy());
+        view.setDisposePerson(event.getDisposePerson());
+        view.setReviewEmployeeNo(event.getReviewEmployeeNo());
         view.setTriggerTime(event.getTriggerTime());
         view.setConfirmTime(event.getConfirmTime());
         view.setCloseTime(event.getCloseTime());
@@ -363,6 +411,8 @@ public class LoadAlertService {
             view.setCloseType(event.getCloseType());
             view.setCloseRemark(event.getCloseRemark());
             view.setClosedBy(event.getClosedBy());
+            view.setDisposePerson(event.getDisposePerson());
+            view.setReviewEmployeeNo(event.getReviewEmployeeNo());
             view.setTriggerTime(event.getTriggerTime());
             view.setConfirmTime(event.getConfirmTime());
             view.setCloseTime(event.getCloseTime());

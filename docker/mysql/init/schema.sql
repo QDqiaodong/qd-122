@@ -183,6 +183,8 @@ CREATE TABLE IF NOT EXISTS load_alert_event (
     close_type VARCHAR(16) COMMENT '关闭方式：MANUAL-手动关闭 AUTO-恢复正常自动关闭',
     close_remark VARCHAR(512) COMMENT '关闭说明',
     closed_by VARCHAR(32) COMMENT '关闭操作人（系统自动关闭为SYSTEM）',
+    dispose_person VARCHAR(32) COMMENT '超载处置人：超载事件完成处置时必填',
+    review_employee_no VARCHAR(32) COMMENT '超载复核工号：超载事件完成处置时必填',
     trigger_time DATETIME NOT NULL COMMENT '告警触发时间',
     confirm_time DATETIME COMMENT '首次确认时间',
     close_time DATETIME COMMENT '关闭时间',

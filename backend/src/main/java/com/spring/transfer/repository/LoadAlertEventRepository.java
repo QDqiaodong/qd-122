@@ -29,6 +29,13 @@ public interface LoadAlertEventRepository extends JpaRepository<LoadAlertEvent, 
 
     List<LoadAlertEvent> findByStatusOrderByTriggerTimeDescIdDesc(AlertStatus status);
 
+    /**
+     * 批量取多条产线「已完成超载处置」的历史事件（含处置人/复核工号），
+     * 看板按 closeTime 取每线最近一次展示。
+     */
+    List<LoadAlertEvent> findByLineIdInAndStatusAndAlertLevelOrderByCloseTimeDescIdDesc(
+            Collection<Long> lineIds, AlertStatus status, String alertLevel);
+
     boolean existsByEventNo(String eventNo);
 
     long countByStatus(AlertStatus status);

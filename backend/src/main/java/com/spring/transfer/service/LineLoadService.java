@@ -87,6 +87,8 @@ public class LineLoadService {
         // 保证顶部统计、状态分组与告警标记来自同一次计算
         loadAlertService.syncEvents(all);
         Map<String, Integer> alertCounts = loadAlertService.attachOpenEvents(all);
+        // 挂载每线最近一次超载处置（处置人/复核工号/时间），看板卡片可直接查看
+        loadAlertService.attachLatestOverloadDisposition(all);
 
         Map<LoadStatus, List<LineLoadStats>> grouped = all.stream()
                 .collect(Collectors.groupingBy(
@@ -196,6 +198,7 @@ public class LineLoadService {
         // 明细同样先同步事件，保证打开抽屉看到的是最新处置闭环状态
         loadAlertService.syncEvents(List.of(stats));
         loadAlertService.attachOpenEvents(List.of(stats));
+        loadAlertService.attachLatestOverloadDisposition(List.of(stats));
 
         LineLoadDetailResponse detail = new LineLoadDetailResponse();
         detail.setStats(stats);
@@ -358,6 +361,11 @@ public class LineLoadService {
         return response;
     }
 
+    /**
+     * 维护产线日承载阈值与弹力系数适用区间。
+     * 未完成处置的超载产线（当前超载且存在未关闭告警事件）禁止修改阈值：
+     * 必须先在告警处置中填齐处置人与复核工号完成闭环，才能通过调阈值改变负载口径。
+     */
     @Transactional
     public ProductionLine updateThreshold(Long lineId, LineThresholdUpdateRequest request) {
         ProductionLine line = productionLineRepository.findById(lineId)
@@ -368,6 +376,15 @@ public class LineLoadService {
         if (request.getElasticMin() != null && request.getElasticMax() != null
                 && request.getElasticMin().compareTo(request.getElasticMax()) > 0) {
             throw new RuntimeException("弹力系数下限不能大于上限");
+        }
+        // 超载未闭环门禁：用保存前的归属与阈值实时计算，处置完成前不允许改口径
+        List<SpringArchive> currentSprings = springArchiveRepository.findByCurrentLineId(lineId);
+        LineLoadStats currentStats = buildStats(line, currentSprings.size(),
+                countOutOfRange(line, currentSprings), 0, 0);
+        if (LoadStatus.OVERLOAD.name().equals(currentStats.getStatus())
+                && loadAlertService.findOpenEvent(lineId).isPresent()) {
+            throw new RuntimeException("产线「" + line.getLineName()
+                    + "」当前超载且告警尚未完成处置，请先完成超载处置（填写处置人与复核工号）后再修改日承载阈值");
         }
         line.setDailyCapacityThreshold(request.getDailyCapacityThreshold());
         line.setElasticMin(request.getElasticMin());

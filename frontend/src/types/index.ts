@@ -92,6 +92,12 @@ export interface LineLoadStats {
   lastInspector?: string | null
   /** 当日是否已完成开班点检（当日未点检的产线不能作为调拨模拟接收方） */
   inspectedToday?: boolean
+  /** 最近一次超载处置的处置人（超载事件完成时必填），从未完成过超载处置为 null */
+  lastOverloadDisposePerson?: string | null
+  /** 最近一次超载处置的复核工号 */
+  lastOverloadReviewEmployeeNo?: string | null
+  /** 最近一次超载处置完成时间 */
+  lastOverloadDisposeTime?: string | null
 }
 
 export interface LineLoadBoard {
@@ -155,6 +161,10 @@ export interface LoadAlertEvent {
   closeType?: 'MANUAL' | 'AUTO' | null
   closeRemark?: string | null
   closedBy?: string | null
+  /** 超载处置人（产线当前超载时完成处置必填） */
+  disposePerson?: string | null
+  /** 超载复核工号（产线当前超载时完成处置必填） */
+  reviewEmployeeNo?: string | null
   triggerTime: string
   confirmTime?: string | null
   closeTime?: string | null
@@ -182,6 +192,10 @@ export interface AlertDispositionRequest {
   responsiblePerson?: string
   handlePlan?: string
   remark?: string
+  /** 处置人：产线当前超载时 RESOLVE 必填 */
+  disposePerson?: string
+  /** 复核工号：产线当前超载时 RESOLVE 必填 */
+  reviewEmployeeNo?: string
 }
 
 export interface LineThresholdUpdateRequest {
