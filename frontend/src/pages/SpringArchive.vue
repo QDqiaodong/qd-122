@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
 import { springApi, specApi } from '@/api'
-import type { SpringArchive as SpringArchiveType, SealStatus } from '@/types'
+import type { SpringArchive as SpringArchiveType, SealStatus, ElasticSample } from '@/types'
 import BatchTransferModal from '@/components/BatchTransferModal.vue'
 import SpringSealModal from '@/components/SpringSealModal.vue'
 import SampleRegisterModal from '@/components/SampleRegisterModal.vue'
@@ -225,8 +225,10 @@ function handleRegisterSample(spring: SpringArchiveType) {
   sampleModalVisible.value = true
 }
 
-function handleSampleSaved() {
-  fetchSprings()
+async function handleSampleSaved(sample: ElasticSample) {
+  await fetchSprings()
+  // 登记后当前弹簧可能刚挂黄标，立即从划转勾选中剔除，避免依赖旧页面状态
+  selectedIds.value = selectedIds.value.filter((id) => id !== sample.springId)
 }
 
 /** 偏离留样闭环后黄标不自动摘除，质量主管在档案页点「摘标加签」 */

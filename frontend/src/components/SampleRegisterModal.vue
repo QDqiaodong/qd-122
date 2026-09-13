@@ -3,12 +3,12 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
 import { elasticSampleApi } from '@/api'
-import type { SpringArchive, ElasticSample, RegisterSampleRequest } from '@/types'
+import type { SpringArchive, ElasticSample } from '@/types'
 import { ClipboardPlus, UserRound, Ruler, Factory, AlertTriangle, CheckCircle2, X, FlaskConical } from 'lucide-vue-next'
 
 const props = defineProps<{
   visible: boolean
-  /** 来源弹簧；为空时弹窗内可按弹簧编号搜索选择 */
+  /** 来源弹簧：由弹簧档案当前行带入，不允许在弹窗内空选 */
   spring: SpringArchive | null
 }>()
 const emit = defineEmits<{
@@ -21,10 +21,15 @@ const OPERATOR_KEY = 'elastic-sample-operator'
 const lineStore = useLineStore()
 const saving = ref(false)
 
-const form = reactive<RegisterSampleRequest>({
-  springId: null as unknown as number,
+const form = reactive<{
+  springId: number | null
+  lineId: number | null
+  measuredCoefficient: number | null
+  operator: string
+}>({
+  springId: null,
   lineId: null,
-  measuredCoefficient: null as unknown as number,
+  measuredCoefficient: null,
   operator: localStorage.getItem(OPERATOR_KEY) ?? '',
 })
 
@@ -34,21 +39,23 @@ const dialogVisible = computed({
 })
 
 const targetSpring = computed(() => props.spring)
+const hasSelectedSpring = computed(() => form.springId != null)
 const targetLine = computed(() =>
   form.lineId ? lineStore.lines.find((l) => l.id === form.lineId) ?? null : null
 )
 
 watch(
   () => props.visible,
-  (v) => {
-    if (v) {
+  (visible) => {
+    if (visible) {
       form.operator = localStorage.getItem(OPERATOR_KEY) ?? ''
-      form.measuredCoefficient = null as unknown as number
+      form.measuredCoefficient = null
       form.lineId = props.spring?.currentLineId ?? null
-      form.springId = props.spring?.id ?? (null as unknown as number)
+      form.springId = props.spring?.id ?? null
       if (lineStore.lines.length === 0) lineStore.fetchLines()
     }
-  }
+  },
+  { immediate: true }
 )
 
 /** 实测系数是否落在所选产线适用区间（前端预判展示，最终以后端判定为准） */
@@ -65,10 +72,11 @@ function rangeText(min?: number | null, max?: number | null) {
 }
 
 async function handleSubmit() {
-  if (!form.springId) {
+  if (form.springId == null) {
     ElMessage.warning('请选择抽检弹簧')
     return
   }
+  const springId = form.springId
   if (form.measuredCoefficient == null || !(form.measuredCoefficient > 0)) {
     ElMessage.warning('请输入大于 0 的实测弹力系数')
     return
@@ -80,7 +88,7 @@ async function handleSubmit() {
   saving.value = true
   try {
     const response = await elasticSampleApi.register({
-      springId: form.springId,
+      springId,
       // 始终按弹簧当前所在产线登记，避免选错产线
       lineId: targetSpring.value?.currentLineId ?? form.lineId,
       measuredCoefficient: Number(form.measuredCoefficient),
@@ -109,7 +117,10 @@ async function handleSubmit() {
       <div v-if="targetSpring" class="p-3 bg-industrial-50 rounded-industrial text-sm space-y-1">
         <div class="flex justify-between">
           <span class="text-industrial-600">弹簧编号：</span>
-          <span class="font-mono font-medium text-primary-800">{{ targetSpring.springCode }}</span>
+          <span class="font-mono font-medium text-primary-800">
+            {{ targetSpring.springCode }}
+            <span class="ml-1 text-xs font-normal text-primary-600">（当前档案行带入）</span>
+          </span>
         </div>
         <div class="flex justify-between">
           <span class="text-industrial-600">型号：</span>
@@ -187,7 +198,12 @@ async function handleSubmit() {
           <X class="w-4 h-4 inline mr-1" />
           取消
         </button>
-        <button class="btn-industrial-accent" :disabled="saving" @click="handleSubmit">
+        <button
+          class="btn-industrial-accent"
+          :disabled="saving || !hasSelectedSpring"
+          :title="hasSelectedSpring ? '' : '请先选择抽检弹簧'"
+          @click="handleSubmit"
+        >
           <ClipboardPlus class="w-4 h-4 inline mr-1" />
           {{ saving ? '提交中...' : '确认登记' }}
         </button>
