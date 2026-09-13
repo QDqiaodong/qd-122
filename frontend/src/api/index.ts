@@ -41,6 +41,8 @@ import type {
   RegisterSampleRequest,
   UpdateMeasuredRequest,
   CloseSampleRequest,
+  LineInspection,
+  LineInspectionRequest,
 } from '@/types'
 
 const request = axios.create({
@@ -179,8 +181,7 @@ export const nightReviewApi = {
     request.post<unknown, ApiResponse<NightLoadReviewDetail>>(`/night-reviews/${id}/confirm`, data),
 }
 
-export const elasticSampleApi = {
-  /** 留样单列表，可按 待闭环/已闭环、产线、是否偏离、关键词筛选（默认待闭环优先） */
+export const elasticSampleApi = {  /** 留样单列表，可按 待闭环/已闭环、产线、是否偏离、关键词筛选（默认待闭环优先） */
   list: (params?: {
     status?: SampleStatus
     lineId?: number
@@ -200,4 +201,16 @@ export const elasticSampleApi = {
   /** 闭环（处置结论必填） */
   close: (id: number, data: CloseSampleRequest) =>
     request.post<unknown, ApiResponse<ElasticSample>>(`/elastic-samples/${id}/close`, data),
+}
+
+export const inspectionApi = {
+  /** 登记开班点检：气源压力、工装完好、点检人三项必填，缺一不能提交 */
+  register: (data: LineInspectionRequest) =>
+    request.post<unknown, ApiResponse<LineInspection>>('/line-inspections', data),
+  /** 全部产线的最近一次点检，key 为产线ID（档案页/模拟页判定「未开班点检」用） */
+  latest: () =>
+    request.get<unknown, ApiResponse<Record<string, LineInspection>>>('/line-inspections/latest'),
+  /** 指定产线的点检历史（点检时间倒序） */
+  listByLine: (lineId: number) =>
+    request.get<unknown, ApiResponse<LineInspection[]>>(`/line-inspections/lines/${lineId}`),
 }

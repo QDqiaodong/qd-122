@@ -2,6 +2,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
+import { useInspectionStore } from '@/stores/inspections'
 import { springApi, specApi } from '@/api'
 import type { SpringArchive as SpringArchiveType, SealStatus, ElasticSample } from '@/types'
 import BatchTransferModal from '@/components/BatchTransferModal.vue'
@@ -23,9 +24,11 @@ import {
   OctagonPause,
   ClipboardPlus,
   TriangleAlert,
+  Wind,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
+const inspectionStore = useInspectionStore()
 const loading = ref(false)
 const springs = ref<SpringArchiveType[]>([])
 const selectedIds = ref<number[]>([])
@@ -268,6 +271,7 @@ function formatCountersignTime(time?: string | null) {
 
 onMounted(async () => {
   await lineStore.fetchLines()
+  await inspectionStore.fetchLatest(true)
   fetchSprings()
   fetchElasticSpecs()
 })
@@ -452,6 +456,20 @@ onMounted(async () => {
               <td>
                 <span class="px-2 py-1 bg-primary-100 text-primary-800 rounded text-xs font-medium">
                   {{ spring.currentLineName || lineStore.getLineName(spring.currentLineId) }}
+                </span>
+                <!-- 该线当日未开班点检（或点检未通过）时随行写出，勾划转时一并提示 -->
+                <span
+                  v-if="inspectionStore.blockLabel(spring.currentLineId)"
+                  class="ml-1 px-1.5 py-0.5 rounded text-xs font-medium cursor-help"
+                  :class="
+                    inspectionStore.blockLabel(spring.currentLineId) === '未开班点检'
+                      ? 'bg-amber-100 text-amber-700'
+                      : 'bg-red-100 text-red-700'
+                  "
+                  :title="`产线「${spring.currentLineName || lineStore.getLineName(spring.currentLineId)}」${inspectionStore.blockLabel(spring.currentLineId)}：当日未完成开班点检（或点检未通过），不能作为调拨模拟接收方`"
+                >
+                  <Wind class="w-3 h-3 inline mr-0.5" />
+                  {{ inspectionStore.blockLabel(spring.currentLineId) }}
                 </span>
               </td>
               <td>

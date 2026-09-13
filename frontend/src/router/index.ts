@@ -7,6 +7,7 @@ import TransferApproval from '@/pages/TransferApproval.vue'
 import TraceQuery from '@/pages/TraceQuery.vue'
 import NightReview from '@/pages/NightReview.vue'
 import ElasticSamples from '@/pages/ElasticSamples.vue'
+import LineInspection from '@/pages/LineInspection.vue'
 
 const routes = [
   {
@@ -50,6 +51,12 @@ const routes = [
     name: 'ElasticSamples',
     component: ElasticSamples,
     meta: { title: '弹力抽检留样' },
+  },
+  {
+    path: '/inspection',
+    name: 'LineInspection',
+    component: LineInspection,
+    meta: { title: '开班点检登记' },
   },
   {
     path: '/trace',

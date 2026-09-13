@@ -78,4 +78,16 @@ public class LineLoadStats {
 
     /** 最近一次复台结论 */
     private String resumeConclusion;
+
+    /** 最近一次开班点检时间，从未点检过为 null */
+    private java.time.LocalDateTime lastInspectionTime;
+
+    /** 最近一次开班点检是否通过，从未点检过为 null */
+    private Boolean lastInspectionPassed;
+
+    /** 最近一次开班点检的点检人（质量员） */
+    private String lastInspector;
+
+    /** 当日是否已完成开班点检（当日未点检的产线不能作为调拨模拟接收方） */
+    private boolean inspectedToday;
 }

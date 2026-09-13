@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
+import { useInspectionStore } from '@/stores/inspections'
 import { applicationApi } from '@/api'
 import type { SpringArchive, TransferApplication } from '@/types'
 import {
@@ -10,6 +11,7 @@ import {
   FileText,
   AlertTriangle,
   Ban,
+  Wind,
 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -23,6 +25,7 @@ const emit = defineEmits<{
 }>()
 
 const lineStore = useLineStore()
+const inspectionStore = useInspectionStore()
 const toLineId = ref<number | null>(null)
 const applicant = ref('')
 const reason = ref('')
@@ -64,6 +67,11 @@ const sealedSprings = computed(() => {
 /** 黄标件（待闭环或已闭环待摘标加签）不能进入划转申请 */
 const yellowFlagSprings = computed(() => {
   return props.selectedSprings.filter((s) => s.sealStatus !== 'SEALED' && s.yellowFlag)
+})
+
+/** 当前产线当日未开班点检（或点检未通过）的弹簧：勾划转时写出提示（展示用，不拦截正式申请） */
+const uninspectedSprings = computed(() => {
+  return props.selectedSprings.filter((s) => inspectionStore.blockLabel(s.currentLineId) != null)
 })
 
 const invalidSprings = computed(() => {
@@ -134,6 +142,10 @@ watch(
   (val) => {
     if (val && lineStore.lines.length === 0) {
       lineStore.fetchLines()
+    }
+    if (val) {
+      // 打开弹窗时刷新各产线点检状态，确保「未开班点检」提示按最新登记判定
+      inspectionStore.fetchLatest(true)
     }
   }
 )
@@ -264,6 +276,10 @@ watch(
                   <span>黄标拦截（待闭环 / 待摘标加签）：</span>
                   <span class="font-mono text-amber-600">{{ yellowFlagSprings.length }}</span>
                 </div>
+                <div v-if="uninspectedSprings.length > 0" class="flex justify-between">
+                  <span>未开班点检提示：</span>
+                  <span class="font-mono text-amber-600">{{ uninspectedSprings.length }}</span>
+                </div>
                 <div class="flex justify-between pt-2 border-t border-industrial-200 mt-2">
                   <span class="font-medium">目标产线：</span>
                   <span class="font-medium text-accent-600">
@@ -309,6 +325,14 @@ watch(
                   <span class="px-2 py-0.5 bg-primary-100 text-primary-700 rounded text-xs">
                     {{ spring.currentLineName }}
                   </span>
+                  <div
+                    v-if="inspectionStore.blockLabel(spring.currentLineId)"
+                    class="mt-0.5 text-xs text-amber-600"
+                    :title="`产线「${spring.currentLineName}」${inspectionStore.blockLabel(spring.currentLineId)}：当日未完成开班点检（或点检未通过）`"
+                  >
+                    <Wind class="w-3 h-3 inline mr-0.5" />
+                    {{ inspectionStore.blockLabel(spring.currentLineId) }}
+                  </div>
                 </td>
                 <td class="py-2 text-center">
                   <ArrowRight class="w-4 h-4 mx-auto text-industrial-400" />

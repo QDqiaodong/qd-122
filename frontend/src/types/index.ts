@@ -84,6 +84,14 @@ export interface LineLoadStats {
   resumeOperator?: string | null
   resumeTime?: string | null
   resumeConclusion?: string | null
+  /** 最近一次开班点检时间，从未点检过为 null */
+  lastInspectionTime?: string | null
+  /** 最近一次开班点检是否通过，从未点检过为 null */
+  lastInspectionPassed?: boolean | null
+  /** 最近一次开班点检的点检人（质量员） */
+  lastInspector?: string | null
+  /** 当日是否已完成开班点检（当日未点检的产线不能作为调拨模拟接收方） */
+  inspectedToday?: boolean
 }
 
 export interface LineLoadBoard {
@@ -557,4 +565,36 @@ export interface PageResponse<T> {
   totalPages: number
   number: number
   size: number
+}
+
+// ---------------------------------------------------------------------
+// 产线开班点检
+// ---------------------------------------------------------------------
+
+/** 开班点检记录：质量员开班前登记气源压力、工装完好与点检人（三项必填） */
+export interface LineInspection {
+  id: number
+  inspectionNo: string
+  lineId: number
+  lineCode: string
+  lineName: string
+  /** 气源压力（MPa） */
+  airPressure: number
+  /** 工装是否完好 */
+  toolingIntact: boolean
+  /** 点检人（质量员） */
+  inspector: string
+  /** 点检结论：工装完好且气源压力在标准区间（0.40~0.80 MPa）内为通过 */
+  passed: boolean
+  /** 点检时间（登记时间） */
+  inspectTime: string
+  createTime: string
+}
+
+/** 开班点检登记请求：三项缺一不可提交 */
+export interface LineInspectionRequest {
+  lineId: number
+  airPressure: number | null
+  toolingIntact: boolean | null
+  inspector: string
 }

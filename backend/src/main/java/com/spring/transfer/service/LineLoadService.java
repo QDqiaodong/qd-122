@@ -10,6 +10,7 @@ import com.spring.transfer.dto.LoadStatus;
 import com.spring.transfer.dto.SimulationEstimateResponse;
 import com.spring.transfer.common.ApplicationStatus;
 import com.spring.transfer.common.ItemStatus;
+import com.spring.transfer.entity.LineInspection;
 import com.spring.transfer.entity.LoadAlertEvent;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
@@ -62,17 +63,21 @@ public class LineLoadService {
     private final TransferApplicationRepository applicationRepository;
     /** 告警事件随负载计算结果同步：异常建事件、恢复自动关闭；@Lazy 规避循环依赖 */
     private final LoadAlertService loadAlertService;
+    /** 开班点检：看板挂载最近点检结果，调拨模拟拦截未点检接收产线 */
+    private final LineInspectionService lineInspectionService;
 
     public LineLoadService(ProductionLineRepository productionLineRepository,
                            SpringArchiveRepository springArchiveRepository,
                            TransferRecordRepository transferRecordRepository,
                            TransferApplicationRepository applicationRepository,
-                           @Lazy LoadAlertService loadAlertService) {
+                           @Lazy LoadAlertService loadAlertService,
+                           LineInspectionService lineInspectionService) {
         this.productionLineRepository = productionLineRepository;
         this.springArchiveRepository = springArchiveRepository;
         this.transferRecordRepository = transferRecordRepository;
         this.applicationRepository = applicationRepository;
         this.loadAlertService = loadAlertService;
+        this.lineInspectionService = lineInspectionService;
     }
 
     public LineLoadBoardResponse getBoard() {
@@ -186,6 +191,7 @@ public class LineLoadService {
                 countOutOfRange(line, springsByLine.getOrDefault(lineId, List.of())),
                 trend.inCount.getOrDefault(lineId, 0),
                 trend.outCount.getOrDefault(lineId, 0));
+        attachInspection(stats);
 
         // 明细同样先同步事件，保证打开抽屉看到的是最新处置闭环状态
         loadAlertService.syncEvents(List.of(stats));
@@ -224,9 +230,11 @@ public class LineLoadService {
                 .collect(Collectors.groupingBy(SpringArchive::getCurrentLineId));
         TrendAggregation trend = aggregateTrend(transferRecordRepository.findByOperateTimeAfter(after));
         List<SpringArchive> springs = springsByLine.getOrDefault(lineId, List.of());
-        return Optional.of(buildStats(line, springs.size(), countOutOfRange(line, springs),
+        LineLoadStats stats = buildStats(line, springs.size(), countOutOfRange(line, springs),
                 trend.inCount.getOrDefault(lineId, 0),
-                trend.outCount.getOrDefault(lineId, 0)));
+                trend.outCount.getOrDefault(lineId, 0));
+        attachInspection(stats);
+        return Optional.of(stats);
     }
 
     /**
@@ -243,6 +251,13 @@ public class LineLoadService {
         if (toLine.isHalted()) {
             throw new RuntimeException(toLine.getHaltSummary()
                     + "，停台期间不能作为划转接收方，请待复台后再模拟或保存方案");
+        }
+
+        // 开班点检校验：当日未点检或点检未通过的产线不能作为调拨模拟接收方，
+        // 提示中给出点检结果明细（气源压力、工装完好、点检人），便于质量员整改后重新点检
+        String inspectionBlock = lineInspectionService.receiveBlockReason(toLine);
+        if (inspectionBlock != null) {
+            throw new RuntimeException(inspectionBlock);
         }
 
         List<Long> distinctIds = springIds.stream().distinct().toList();
@@ -375,14 +390,17 @@ public class LineLoadService {
                 .collect(Collectors.groupingBy(SpringArchive::getCurrentLineId));
         Map<Long, Long> countMap = toCountMap(springsByLine);
         TrendAggregation trend = aggregateTrend(transferRecordRepository.findByOperateTimeAfter(after));
+        Map<Long, LineInspection> latestInspections = lineInspectionService.latestMap();
 
         List<LineLoadStats> statsList = productionLineRepository.findAll().stream()
                 .map(line -> {
                     int count = countMap.getOrDefault(line.getId(), 0L).intValue();
                     int outOfRange = countOutOfRange(line, springsByLine.getOrDefault(line.getId(), List.of()));
-                    return buildStats(line, count, outOfRange,
+                    LineLoadStats stats = buildStats(line, count, outOfRange,
                             trend.inCount.getOrDefault(line.getId(), 0),
                             trend.outCount.getOrDefault(line.getId(), 0));
+                    attachInspection(stats, latestInspections.get(line.getId()));
+                    return stats;
                 })
                 .collect(Collectors.toList());
 
@@ -479,8 +497,19 @@ public class LineLoadService {
         return stats;
     }
 
-    private int countOutOfRange(ProductionLine line, List<SpringArchive> springs) {
-        BigDecimal min = line.getElasticMin();
+    /** 挂载单条产线的开班点检信息（最近一次点检时间、是否通过、当日是否已点检） */
+    private void attachInspection(LineLoadStats stats) {
+        attachInspection(stats, lineInspectionService.latestOfLine(stats.getLineId()).orElse(null));
+    }
+
+    private void attachInspection(LineLoadStats stats, LineInspection latest) {
+        stats.setLastInspectionTime(latest == null ? null : latest.getInspectTime());
+        stats.setLastInspectionPassed(latest == null ? null : latest.getPassed());
+        stats.setLastInspector(latest == null ? null : latest.getInspector());
+        stats.setInspectedToday(latest != null && latest.isToday());
+    }
+
+    private int countOutOfRange(ProductionLine line, List<SpringArchive> springs) {        BigDecimal min = line.getElasticMin();
         BigDecimal max = line.getElasticMax();
         if (min == null && max == null) {
             return 0;

@@ -2,6 +2,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useLineStore } from '@/stores/lines'
+import { useInspectionStore } from '@/stores/inspections'
 import { springApi, simulationApi } from '@/api'
 import type {
   SpringArchive,
@@ -28,9 +29,11 @@ import {
   RefreshCw,
   ClipboardList,
   Ban,
+  Wind,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
+const inspectionStore = useInspectionStore()
 const loading = ref(false)
 const estimating = ref(false)
 const saving = ref(false)
@@ -79,11 +82,14 @@ const selectedSprings = computed(() => {
 const selectableSprings = computed(() => springs.value.filter((s) => s.sealStatus !== 'SEALED'))
 
 const availableTargetLines = computed(() => {
+  // 未开班点检（或点检未通过）的产线不能作为调拨模拟接收方，与停台产线一并排除
   if (selectedSprings.value.length === 0) {
-    return lineStore.lines.filter((l) => l.haltStatus !== 'HALTED')
+    return lineStore.lines.filter((l) => l.haltStatus !== 'HALTED' && inspectionStore.isReady(l.id))
   }
   const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
-  return lineStore.lines.filter((line) => !fromLineIds.has(line.id) && line.haltStatus !== 'HALTED')
+  return lineStore.lines.filter(
+    (line) => !fromLineIds.has(line.id) && line.haltStatus !== 'HALTED' && inspectionStore.isReady(line.id)
+  )
 })
 
 /** 停台产线（排除弹簧当前所在产线）：不能作为拟接收产线，明确展示停台原因 */
@@ -92,10 +98,27 @@ const haltedTargetLines = computed(() => {
   return lineStore.lines.filter((line) => line.haltStatus === 'HALTED' && !fromLineIds.has(line.id))
 })
 
+/** 未开班点检或点检未通过的产线（排除弹簧当前所在产线与停台线）：不能作为拟接收产线 */
+const uninspectedTargetLines = computed(() => {
+  const fromLineIds = new Set(selectedSprings.value.map((s) => s.currentLineId))
+  return lineStore.lines.filter(
+    (line) =>
+      line.haltStatus !== 'HALTED' &&
+      !fromLineIds.has(line.id) &&
+      !inspectionStore.isReady(line.id)
+  )
+})
+
 /** 已选拟接收产线在数据刷新后变为停台时的兜底拦截 */
 const selectedTargetHalted = computed(() => {
   if (!simForm.toLineId) return null
   return lineStore.lines.find((l) => l.id === simForm.toLineId && l.haltStatus === 'HALTED') ?? null
+})
+
+/** 已选拟接收产线在数据刷新后变为未点检/点检未通过时的兜底拦截 */
+const selectedTargetBlockLabel = computed(() => {
+  if (!simForm.toLineId) return null
+  return inspectionStore.blockLabel(simForm.toLineId)
 })
 
 // 选择或目标产线变化后，原预估结果失效
@@ -181,6 +204,16 @@ function validateSelection(): boolean {
       message:
         `拟接收产线「${selectedTargetHalted.value.lineName}」临时停台中` +
         `（${selectedTargetHalted.value.haltReason || '停台原因未登记'}），停台期间不能接收划转`,
+      duration: 6000,
+      showClose: true,
+    })
+    return false
+  }
+  if (selectedTargetBlockLabel.value) {
+    ElMessage.warning({
+      message:
+        `拟接收产线「${lineStore.getLineName(simForm.toLineId!)}」${selectedTargetBlockLabel.value}，` +
+        `不能进行调拨模拟，请质量员先完成开班点检登记`,
       duration: 6000,
       showClose: true,
     })
@@ -331,6 +364,7 @@ function formatTime(time?: string) {
 
 onMounted(async () => {
   await lineStore.fetchLines()
+  await inspectionStore.fetchLatest(true)
   fetchSprings()
   fetchPlans()
 })
@@ -508,6 +542,23 @@ onMounted(async () => {
                   <div class="text-sm text-red-700 line-through decoration-red-300">{{ line.lineName }}</div>
                   <div class="text-xs text-red-500 truncate">
                     停台中：{{ line.haltReason || '原因未登记' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- 未开班点检/点检未通过产线：不能作为拟接收产线，明确展示点检状态 -->
+            <div v-if="uninspectedTargetLines.length > 0" class="mt-2 space-y-1.5">
+              <div
+                v-for="line in uninspectedTargetLines"
+                :key="'uninspected-' + line.id"
+                class="flex items-center gap-2 p-2 rounded-industrial border border-amber-200 bg-amber-50"
+                title="当日未开班点检或点检未通过的产线不能进行调拨模拟"
+              >
+                <Wind class="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm text-amber-700 line-through decoration-amber-300">{{ line.lineName }}</div>
+                  <div class="text-xs text-amber-600 truncate">
+                    {{ inspectionStore.blockLabel(line.id) }}，不能进行调拨模拟
                   </div>
                 </div>
               </div>

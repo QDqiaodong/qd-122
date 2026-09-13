@@ -42,6 +42,8 @@ class LineLoadServiceSimulationTest {
     private TransferApplicationRepository applicationRepository;
     @Mock
     private LoadAlertService loadAlertService;
+    @Mock
+    private LineInspectionService lineInspectionService;
 
     private LineLoadService lineLoadService;
 
@@ -51,7 +53,7 @@ class LineLoadServiceSimulationTest {
     @BeforeEach
     void setUp() {
         lineLoadService = new LineLoadService(productionLineRepository, springArchiveRepository,
-                transferRecordRepository, applicationRepository, loadAlertService);
+                transferRecordRepository, applicationRepository, loadAlertService, lineInspectionService);
 
         lines = List.of(
                 line(1L, "LINE-001", "装配一号线", 2, "0.2", "1.0"),
@@ -170,6 +172,35 @@ class LineLoadServiceSimulationTest {
         assertTrue(ex.getMessage().contains("2026-09-20"));
         // 未封存的弹簧不出现在拦截原因中
         assertFalse(ex.getMessage().contains("SP-2024-0002"));
+    }
+
+    @Test
+    void simulateTransferRejectsTargetLineWithoutInspection() {
+        when(productionLineRepository.findById(4L)).thenReturn(Optional.of(lines.get(3)));
+        // 拟接收产线当日未开班点检：不能进行调拨模拟，提示质量员先登记
+        when(lineInspectionService.receiveBlockReason(lines.get(3)))
+                .thenReturn("产线「装配四号线」未开班点检，不能进行调拨模拟；"
+                        + "请质量员先完成开班点检登记（气源压力、工装完好、点检人）");
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> lineLoadService.simulateTransfer(List.of(1L), 4L));
+        assertTrue(ex.getMessage().contains("未开班点检"));
+        assertTrue(ex.getMessage().contains("装配四号线"));
+        assertTrue(ex.getMessage().contains("不能进行调拨模拟"));
+    }
+
+    @Test
+    void simulateTransferRejectsTargetLineWithFailedInspection() {
+        when(productionLineRepository.findById(4L)).thenReturn(Optional.of(lines.get(3)));
+        // 拟接收产线当日点检未通过：不能作为划转接收方，提示中给出点检结果明细
+        when(lineInspectionService.receiveBlockReason(lines.get(3)))
+                .thenReturn("产线「装配四号线」开班点检未通过（气源压力 0.3 MPa（标准 0.40~0.80 MPa），工装完好，"
+                        + "点检人：王质检，点检时间：2026-09-13 07:30），不能作为划转接收方，请整改后重新点检");
+
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> lineLoadService.simulateTransfer(List.of(1L), 4L));
+        assertTrue(ex.getMessage().contains("开班点检未通过"));
+        assertTrue(ex.getMessage().contains("不能作为划转接收方"));
     }
 
     private ProductionLine line(Long id, String code, String name, int threshold, String min, String max) {

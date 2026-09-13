@@ -40,6 +40,7 @@ import {
   OctagonPause,
   PlayCircle,
   Flame,
+  Wind,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -597,6 +598,32 @@ onMounted(fetchBoard)
               </span>
             </div>
 
+            <!-- 最近一次开班点检：时间与是否通过 -->
+            <div class="mt-2 flex items-center gap-1.5 text-xs">
+              <Wind class="w-3.5 h-3.5 text-industrial-400 flex-shrink-0" />
+              <template v-if="line.lastInspectionTime">
+                <span class="text-industrial-500">
+                  最近点检 <span class="font-mono">{{ formatTime(line.lastInspectionTime) }}</span>
+                  · {{ line.lastInspector || '-' }}
+                </span>
+                <span
+                  class="ml-auto px-1.5 py-0.5 rounded font-medium"
+                  :class="line.lastInspectionPassed ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                >
+                  {{ line.lastInspectionPassed ? '点检通过' : '点检未通过' }}
+                </span>
+              </template>
+              <span v-else class="text-industrial-400">未开班点检</span>
+              <span
+                v-if="!line.inspectedToday"
+                class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium"
+                :class="{ 'ml-auto': !line.lastInspectionTime }"
+                title="当日未完成开班点检，不能作为调拨模拟接收方"
+              >
+                今日未点检
+              </span>
+            </div>
+
             <!-- 触发原因预览 -->
             <div v-if="line.reasons.length > 0" class="mt-3 pt-3 border-t border-industrial-200 space-y-1">
               <div
@@ -743,6 +770,67 @@ onMounted(fetchBoard)
                 </span>
               </div>
               <p class="mt-1.5 text-sm text-industrial-700">{{ drawerStats.resumeConclusion }}</p>
+            </div>
+
+            <!-- 最近一次开班点检：时间与是否通过 -->
+            <div
+              class="card-industrial p-4 border-l-4"
+              :class="
+                drawerStats?.inspectedToday
+                  ? drawerStats?.lastInspectionPassed
+                    ? 'border-l-green-500'
+                    : 'border-l-red-500'
+                  : 'border-l-amber-500'
+              "
+            >
+              <div class="flex items-center gap-2">
+                <Wind class="w-4 h-4 text-primary-600" />
+                <h3 class="font-semibold text-industrial-800">开班点检</h3>
+                <span
+                  class="ml-auto px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="
+                    drawerStats?.inspectedToday
+                      ? drawerStats?.lastInspectionPassed
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-red-100 text-red-700'
+                      : 'bg-amber-100 text-amber-700'
+                  "
+                >
+                  {{
+                    drawerStats?.inspectedToday
+                      ? drawerStats?.lastInspectionPassed
+                        ? '今日已点检 · 通过'
+                        : '今日已点检 · 未通过'
+                      : '今日未点检'
+                  }}
+                </span>
+              </div>
+              <div v-if="drawerStats?.lastInspectionTime" class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">最近一次点检时间</div>
+                  <div class="mt-0.5 font-mono font-medium text-industrial-800">
+                    {{ formatTime(drawerStats.lastInspectionTime) }}
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">是否通过</div>
+                  <div
+                    class="mt-0.5 font-medium"
+                    :class="drawerStats.lastInspectionPassed ? 'text-green-700' : 'text-red-700'"
+                  >
+                    {{ drawerStats.lastInspectionPassed ? '通过' : '未通过' }}
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">点检人</div>
+                  <div class="mt-0.5 font-medium text-industrial-800">
+                    {{ drawerStats.lastInspector || '-' }}
+                  </div>
+                </div>
+              </div>
+              <p v-else class="mt-2 text-sm text-industrial-400">
+                该产线暂无开班点检记录，未点检产线不能作为调拨模拟接收方
+              </p>
             </div>
 
             <!-- 指标概览 -->
