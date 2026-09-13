@@ -8,6 +8,7 @@ import TraceQuery from '@/pages/TraceQuery.vue'
 import NightReview from '@/pages/NightReview.vue'
 import ElasticSamples from '@/pages/ElasticSamples.vue'
 import LineInspection from '@/pages/LineInspection.vue'
+import MeterReading from '@/pages/MeterReading.vue'
 
 const routes = [
   {
@@ -57,6 +58,12 @@ const routes = [
     name: 'LineInspection',
     component: LineInspection,
     meta: { title: '开班点检登记' },
+  },
+  {
+    path: '/meter-readings',
+    name: 'MeterReading',
+    component: MeterReading,
+    meta: { title: '电表抄录' },
   },
   {
     path: '/trace',

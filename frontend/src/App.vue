@@ -16,6 +16,7 @@ import {
   MoonStar,
   Beaker,
   Wind,
+  Zap,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -30,6 +31,7 @@ const navItems = [
   { path: '/simulation', name: '工序调拨模拟', icon: FlaskConical },
   { path: '/approval', name: '划转申请审批', icon: ClipboardCheck },
   { path: '/night-review', name: '夜班承载复核', icon: MoonStar },
+  { path: '/meter-readings', name: '电表抄录', icon: Zap },
   { path: '/elastic-samples', name: '弹力抽检留样', icon: Beaker },
   { path: '/inspection', name: '开班点检登记', icon: Wind },
   { path: '/trace', name: '划转轨迹查询', icon: History },

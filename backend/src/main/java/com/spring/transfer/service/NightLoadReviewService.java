@@ -51,17 +51,20 @@ public class NightLoadReviewService {
     private final ProductionLineRepository productionLineRepository;
     private final TransferApplicationItemRepository itemRepository;
     private final LineLoadService lineLoadService;
+    private final MeterReadingService meterReadingService;
     private final ObjectMapper objectMapper;
 
     public NightLoadReviewService(NightLoadReviewRepository reviewRepository,
                                   ProductionLineRepository productionLineRepository,
                                   TransferApplicationItemRepository itemRepository,
                                   LineLoadService lineLoadService,
+                                  MeterReadingService meterReadingService,
                                   ObjectMapper objectMapper) {
         this.reviewRepository = reviewRepository;
         this.productionLineRepository = productionLineRepository;
         this.itemRepository = itemRepository;
         this.lineLoadService = lineLoadService;
+        this.meterReadingService = meterReadingService;
         this.objectMapper = objectMapper;
     }
 
@@ -93,6 +96,9 @@ public class NightLoadReviewService {
             throw new RuntimeException("产线「" + line.getLineName() + "」今夜已签发过夜班承载复核单，"
                     + "请直接在已有复核单上交接，请勿重复签发");
         }
+
+        // 夜班复核提交前守卫：该产线当天必须已有白班电表抄录，否则不能签发
+        meterReadingService.assertDayShiftReadingExists(line, reviewDate);
 
         // 与负载预警看板完全一致的口径：数量、阈值、承载率、系数越界条数
         LineLoadStats stats = lineLoadService.getLineStats(line.getId())

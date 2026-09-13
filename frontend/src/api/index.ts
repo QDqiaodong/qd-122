@@ -43,6 +43,8 @@ import type {
   CloseSampleRequest,
   LineInspection,
   LineInspectionRequest,
+  MeterReading,
+  MeterReadingRequest,
 } from '@/types'
 
 const request = axios.create({
@@ -213,4 +215,24 @@ export const inspectionApi = {
   /** 指定产线的点检历史（点检时间倒序） */
   listByLine: (lineId: number) =>
     request.get<unknown, ApiResponse<LineInspection[]>>(`/line-inspections/lines/${lineId}`),
+}
+
+export const meterApi = {
+  /** 提交电表抄录：产线、班次、读数、抄表人四项必填，跳变超幅度由后端标异常 */
+  submit: (data: MeterReadingRequest) =>
+    request.post<unknown, ApiResponse<MeterReading>>('/meter-readings', data),
+  /** 全部产线的最近一条抄录，key 为产线ID（列表展示最近读数与是否异常） */
+  latest: () =>
+    request.get<unknown, ApiResponse<Record<string, MeterReading>>>('/meter-readings/latest'),
+  /** 当天各产线白班抄录，key 为产线ID（夜班复核签发前判定该线当天是否已抄白班） */
+  dayShiftToday: () =>
+    request.get<unknown, ApiResponse<Record<string, MeterReading>>>('/meter-readings/day-shift/today'),
+  /** 指定产线当天白班抄录（无则 data 为 null） */
+  dayShift: (lineId: number) =>
+    request.get<unknown, ApiResponse<MeterReading | null>>('/meter-readings/day-shift', {
+      params: { lineId },
+    }),
+  /** 指定产线的抄录历史（抄表时间倒序） */
+  listByLine: (lineId: number) =>
+    request.get<unknown, ApiResponse<MeterReading[]>>(`/meter-readings/lines/${lineId}`),
 }

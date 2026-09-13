@@ -274,6 +274,30 @@ CREATE TABLE IF NOT EXISTS night_load_review (
     FOREIGN KEY (line_id) REFERENCES production_line(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='夜班承载复核单表';
 
+CREATE TABLE IF NOT EXISTS meter_reading (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    reading_no VARCHAR(32) NOT NULL UNIQUE COMMENT '抄表编号',
+    line_id BIGINT NOT NULL COMMENT '产线ID',
+    line_code VARCHAR(32) NOT NULL COMMENT '产线编码（快照）',
+    line_name VARCHAR(64) NOT NULL COMMENT '产线名称（快照）',
+    reading_date DATE NOT NULL COMMENT '抄表所属日期',
+    shift VARCHAR(16) NOT NULL COMMENT '班次：DAY-白班 NIGHT-夜班',
+    reading_value DECIMAL(12,2) NOT NULL COMMENT '电表读数 kWh（累计）',
+    reader VARCHAR(32) NOT NULL COMMENT '抄表人',
+    read_time DATETIME NOT NULL COMMENT '抄表时间',
+    previous_value DECIMAL(12,2) COMMENT '上一条读数 kWh（首条为null）',
+    jump_delta DECIMAL(12,2) COMMENT '与上一条读数差 kWh（本条-上一条，回退为负）',
+    jump_threshold DECIMAL(12,2) COMMENT '判定异常时的约定跳变幅度快照 kWh',
+    abnormal TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否异常：与上一条读数跳变绝对值超过约定幅度',
+    abnormal_reason VARCHAR(255) COMMENT '异常原因说明',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    UNIQUE KEY uk_line_date_shift (line_id, reading_date, shift),
+    INDEX idx_reading_no (reading_no),
+    INDEX idx_line_time (line_id, read_time),
+    INDEX idx_date_shift (reading_date, shift),
+    FOREIGN KEY (line_id) REFERENCES production_line(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='产线电表抄录表';
+
 INSERT IGNORE INTO production_line
     (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max,
      tooling_remaining_cuts, tooling_cut_threshold, tooling_operator, tooling_update_time) VALUES

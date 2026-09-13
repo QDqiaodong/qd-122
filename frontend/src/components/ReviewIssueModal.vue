@@ -2,8 +2,9 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { nightReviewApi } from '@/api'
+import { useMeterStore } from '@/stores/meter'
 import type { NightLoadReviewDetail, ProductionLine } from '@/types'
-import { ClipboardSignature, Factory, UserRound, FileText, X } from 'lucide-vue-next'
+import { ClipboardSignature, Factory, UserRound, FileText, X, Zap, AlertTriangle } from 'lucide-vue-next'
 
 const props = defineProps<{
   visible: boolean
@@ -19,6 +20,9 @@ const emit = defineEmits<{
 
 const OPERATOR_KEY = 'night-review-operator'
 
+/** 电表抄录缓存：夜班复核提交前该线当天必须已有白班抄录 */
+const meterStore = useMeterStore()
+
 const saving = ref(false)
 const form = reactive({
   lineId: null as number | null,
@@ -33,11 +37,21 @@ const dialogVisible = computed({
 
 const availableLines = computed(() => props.lines.filter((l) => !props.issuedLineIds.has(l.id)))
 
+/** 选中产线当天的白班电表抄录（无则该线夜班复核不能提交） */
+const dayReading = computed(() =>
+  form.lineId == null ? null : meterStore.dayShiftOf(form.lineId)
+)
+/** 已今夜签发复核单的产线外，当天还没有白班抄录的产线（选择器置灰提示） */
+const missingDayReading = (lineId: number) => !meterStore.hasDayShiftToday(lineId)
+
 watch(
   () => props.visible,
   (v) => {
     if (v) {
-      form.lineId = availableLines.value[0]?.id ?? null
+      // 默认选第一条当天已有白班抄录的产线，避免落到不能提交的产线
+      form.lineId = availableLines.value.find((l) => meterStore.hasDayShiftToday(l.id))?.id
+        ?? availableLines.value[0]?.id
+        ?? null
       form.operator = localStorage.getItem(OPERATOR_KEY) ?? ''
       form.handoverRemark = ''
     }
@@ -47,6 +61,12 @@ watch(
 async function handleSubmit() {
   if (form.lineId == null) {
     ElMessage.warning('请选择要复核的产线')
+    return
+  }
+  // 夜班复核提交前守卫：该线当天若还没有白班电表抄录不能交（后端同样强校验）
+  if (!meterStore.hasDayShiftToday(form.lineId)) {
+    const lineName = props.lines.find((l) => l.id === form.lineId)?.lineName ?? ''
+    ElMessage.warning(`产线「${lineName}」当天还没有白班电表抄录，夜班复核不能提交，请先补抄白班读数`)
     return
   }
   if (!form.operator.trim()) {
@@ -82,7 +102,7 @@ async function handleSubmit() {
     <div class="space-y-4">
       <div class="p-3 rounded-industrial border border-amber-200 bg-amber-50 text-xs text-amber-700">
         签发时系统自动固化四项承载快照：当前归属弹簧数、是否压到日承载、系数越界条数、次日必须跟进的待批划转。
-        每条产线每个夜班只能签发一张。
+        每条产线每个夜班只能签发一张；该线当天还没有白班电表抄录时不能提交。
       </div>
 
       <div>
@@ -92,12 +112,30 @@ async function handleSubmit() {
         </label>
         <select v-model="form.lineId" class="input-industrial">
           <option v-for="line in availableLines" :key="line.id" :value="line.id">
-            {{ line.lineName }}（{{ line.lineCode }}）
+            {{ line.lineName }}（{{ line.lineCode }}）{{ missingDayReading(line.id) ? '— 当天缺白班抄录' : '' }}
           </option>
         </select>
         <p v-if="availableLines.length === 0" class="mt-1 text-xs text-red-500">
           今夜各产线均已签发复核单，无需重复签发
         </p>
+
+        <!-- 白班电表抄录守卫：当天缺白班抄录的产线不能提交夜班复核 -->
+        <div
+          v-if="form.lineId != null && dayReading"
+          class="mt-2 px-2.5 py-1.5 rounded-industrial text-xs bg-green-50 border border-green-200 text-green-700"
+        >
+          <Zap class="w-3.5 h-3.5 inline mr-1" />
+          当天白班已抄表：读数 {{ Number(dayReading.readingValue).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}
+          kWh，抄表人 {{ dayReading.reader }}
+          <span v-if="dayReading.abnormal" class="font-medium">· 该条白班读数为异常，已在电表抄录页标注</span>
+        </div>
+        <div
+          v-else-if="form.lineId != null"
+          class="mt-2 px-2.5 py-1.5 rounded-industrial text-xs bg-red-50 border border-red-200 text-red-700"
+        >
+          <AlertTriangle class="w-3.5 h-3.5 inline mr-1" />
+          该产线当天还没有白班电表抄录，夜班复核不能提交；请先到「电表抄录」补抄当天白班读数
+        </div>
       </div>
 
       <div>
@@ -135,7 +173,11 @@ async function handleSubmit() {
           <X class="w-4 h-4 inline mr-1" />
           取消
         </button>
-        <button class="btn-industrial" :disabled="saving || availableLines.length === 0" @click="handleSubmit">
+        <button
+          class="btn-industrial"
+          :disabled="saving || availableLines.length === 0 || (form.lineId != null && missingDayReading(form.lineId))"
+          @click="handleSubmit"
+        >
           <ClipboardSignature class="w-4 h-4 inline mr-1" />
           {{ saving ? '签发中...' : '签发复核单' }}
         </button>

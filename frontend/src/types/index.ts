@@ -612,3 +612,46 @@ export interface LineInspectionRequest {
   toolingIntact: boolean | null
   inspector: string
 }
+
+// ---------------------------------------------------------------------
+// 产线电表抄录
+// ---------------------------------------------------------------------
+
+/** 电表抄录班次：DAY-白班 NIGHT-夜班 */
+export type MeterShift = 'DAY' | 'NIGHT'
+
+/** 电表抄录记录：每条产线每个班次一条；与上一条读数跳变超约定幅度自动标异常 */
+export interface MeterReading {
+  id: number
+  readingNo: string
+  lineId: number
+  lineCode: string
+  lineName: string
+  /** 抄表所属日期 yyyy-MM-dd */
+  readingDate: string
+  shift: MeterShift
+  /** 电表读数 kWh */
+  readingValue: number
+  /** 抄表人 */
+  reader: string
+  /** 抄表时间 */
+  readTime: string
+  /** 上一条读数 kWh（首条为 null） */
+  previousValue: number | null
+  /** 与上一条读数差 kWh（回退为负，首条为 null） */
+  jumpDelta: number | null
+  /** 判定异常时的约定跳变幅度 kWh */
+  jumpThreshold: number | null
+  /** 是否异常：读数跳变绝对值超过约定幅度 */
+  abnormal: boolean
+  abnormalReason: string | null
+  createTime: string
+}
+
+/** 电表抄录提交请求：产线、班次、读数、抄表人四项必填 */
+export interface MeterReadingRequest {
+  lineId: number
+  shift: MeterShift
+  readingValue: number | null
+  reader: string
+}

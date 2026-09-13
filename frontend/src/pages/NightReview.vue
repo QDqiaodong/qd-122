@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { nightReviewApi } from '@/api'
 import { useLineStore } from '@/stores/lines'
+import { useMeterStore } from '@/stores/meter'
 import type {
   NightLoadReviewDetail,
   ReviewStatus,
@@ -18,6 +19,7 @@ import {
   Cog,
   Gauge,
   AlertTriangle,
+  Zap,
   ListChecks,
   Lock,
   ChevronRight,
@@ -27,6 +29,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const lineStore = useLineStore()
+const meterStore = useMeterStore()
 
 // 筛选条件随 URL 持久化，刷新（F5）后待确认/已确认筛选状态仍在
 function parseStatus(value: unknown): ReviewStatus | null {
@@ -101,6 +104,16 @@ function goPage(page: number) {
 function refresh() {
   fetchList()
   fetchGuard()
+  meterStore.fetchDayShiftToday()
+}
+
+/** 当天还没有白班电表抄录的产线（夜班复核不能提交） */
+const linesMissingDayReading = computed(() =>
+  lineStore.lines.filter((l) => !meterStore.hasDayShiftToday(l.id))
+)
+
+function goMeterReading() {
+  router.push({ name: 'MeterReading' })
 }
 
 /** 今夜已签发复核单的产线ID（用于签发弹窗排重），取当前列表当日数据 */
@@ -157,11 +170,38 @@ onMounted(async () => {
   await lineStore.fetchLines()
   fetchList()
   fetchGuard()
+  meterStore.fetchDayShiftToday()
 })
 </script>
 
 <template>
   <div class="space-y-6 animate-fade-in">
+    <!-- 白班电表抄录守卫：当天缺白班抄录的产线夜班复核不能提交 -->
+    <div
+      v-if="linesMissingDayReading.length > 0"
+      class="card-industrial p-4 border-l-4 border-red-500 bg-red-50"
+    >
+      <div class="flex items-start gap-3">
+        <Zap class="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+        <div class="flex-1">
+          <div class="font-bold text-red-800">
+            {{ linesMissingDayReading.length }} 条产线当天还没有白班电表抄录
+          </div>
+          <p class="text-sm text-red-700 mt-1">
+            夜班复核提交前，该线当天必须已有白班电表抄录：
+            {{ linesMissingDayReading.map((l) => l.lineName).join('、') }}。
+            请先到「电表抄录」补抄白班读数。
+          </p>
+        </div>
+        <button
+          class="px-3 py-1.5 rounded-industrial bg-red-600 text-white text-sm font-medium hover:bg-red-700 transition-colors"
+          @click="goMeterReading"
+        >
+          去补抄
+        </button>
+      </div>
+    </div>
+
     <!-- 接班门禁横幅：有待确认复核单时强提示，全部确认后才可提交新划转 -->
     <div
       v-if="!guardAllowed"
