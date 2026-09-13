@@ -4,6 +4,7 @@ import com.spring.transfer.common.ApiResponse;
 import com.spring.transfer.dto.LineHaltGuardResponse;
 import com.spring.transfer.dto.LineHaltRequest;
 import com.spring.transfer.dto.LineResumeRequest;
+import com.spring.transfer.dto.ToolingCutsUpdateRequest;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.service.ProductionLineService;
 import jakarta.validation.Valid;
@@ -65,6 +66,17 @@ public class ProductionLineController {
                                               @Valid @RequestBody LineResumeRequest request) {
         try {
             return ApiResponse.success(productionLineService.resume(id, request));
+        } catch (Exception e) {
+            return ApiResponse.error(e.getMessage());
+        }
+    }
+
+    /** 换刀员维护工装剩余刀次与门槛：剩余刀次低于门槛即到门槛，换刀复位使剩余刀次回到门槛及以上即解除 */
+    @PutMapping("/{id}/tooling-cuts")
+    public ApiResponse<ProductionLine> updateToolingCuts(@PathVariable Long id,
+                                                         @Valid @RequestBody ToolingCutsUpdateRequest request) {
+        try {
+            return ApiResponse.success(productionLineService.updateToolingCuts(id, request));
         } catch (Exception e) {
             return ApiResponse.error(e.getMessage());
         }

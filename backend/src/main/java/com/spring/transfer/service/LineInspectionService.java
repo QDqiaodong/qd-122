@@ -51,7 +51,12 @@ public class LineInspectionService {
         inspection.setAirPressure(request.getAirPressure());
         inspection.setToolingIntact(request.getToolingIntact());
         inspection.setInspector(request.getInspector().trim());
-        inspection.setPassed(isPassing(request.getAirPressure(), request.getToolingIntact()));
+        // 记录点检时的工装剩余刀次快照与是否到门槛，作为判定明细持久化
+        inspection.setToolingRemainingCuts(line.getToolingRemainingCuts());
+        inspection.setToolingCutThreshold(line.getToolingCutThreshold());
+        inspection.setToolingBelowThreshold(line.isToolingBelowThreshold());
+        inspection.setPassed(isPassing(request.getAirPressure(), request.getToolingIntact(),
+                line.isToolingBelowThreshold()));
         inspection.setInspectTime(LocalDateTime.now());
         return inspectionRepository.save(inspection);
     }
@@ -94,12 +99,26 @@ public class LineInspectionService {
         return null;
     }
 
-    /** 点检通过判定：工装完好且气源压力在标准区间内 */
-    private boolean isPassing(BigDecimal airPressure, Boolean toolingIntact) {
+    /**
+     * 工装剩余刀次接收方守卫：门槛未解除（当前剩余刀次低于门槛）的产线不能作为调拨模拟接收方。
+     * 该守卫独立于开班点检——即使当日点检已通过，换刀门槛未解除仍拦截，换刀复位使剩余刀次回到门槛及以上即解除。
+     * 返回 null 表示可接收，否则返回明确的拦截原因。
+     */
+    public String toolingBlockReason(ProductionLine line) {
+        if (line.isToolingBelowThreshold()) {
+            return "产线「" + line.getLineName() + "」" + line.getToolingCutsSummary()
+                    + "，门槛未解除前不能作为调拨模拟接收方，请先换刀复位";
+        }
+        return null;
+    }
+
+    /** 点检通过判定：工装完好、气源压力在标准区间内且工装剩余刀次未到门槛 */
+    private boolean isPassing(BigDecimal airPressure, Boolean toolingIntact, boolean toolingBelowThreshold) {
         return Boolean.TRUE.equals(toolingIntact)
                 && airPressure != null
                 && airPressure.compareTo(LineInspection.AIR_PRESSURE_MIN) >= 0
-                && airPressure.compareTo(LineInspection.AIR_PRESSURE_MAX) <= 0;
+                && airPressure.compareTo(LineInspection.AIR_PRESSURE_MAX) <= 0
+                && !toolingBelowThreshold;
     }
 
     private String generateInspectionNo() {

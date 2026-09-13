@@ -55,9 +55,21 @@ public class LineInspection {
     @Column(name = "inspector", nullable = false, length = 32)
     private String inspector;
 
-    /** 点检结论：true-通过 false-不通过（工装不完好或气源压力超出标准区间即为不通过） */
+    /** 点检结论：true-通过 false-不通过（工装不完好、气源压力超出标准区间或剩余刀次低于门槛即为不通过） */
     @Column(name = "passed", nullable = false)
     private Boolean passed;
+
+    /** 点检时该产线工装剩余刀次快照（null 表示当时尚未录入） */
+    @Column(name = "tooling_remaining_cuts")
+    private Integer toolingRemainingCuts;
+
+    /** 点检时该产线工装剩余刀次门槛快照（null 表示当时尚未配置） */
+    @Column(name = "tooling_cut_threshold")
+    private Integer toolingCutThreshold;
+
+    /** 点检时剩余刀次是否已到门槛（低于门槛），作为不通过判定明细随记录持久化 */
+    @Column(name = "tooling_below_threshold", nullable = false)
+    private Boolean toolingBelowThreshold = false;
 
     /** 点检时间（登记时间） */
     @Column(name = "inspect_time", nullable = false)
@@ -74,7 +86,7 @@ public class LineInspection {
 
     /**
      * 点检结论摘要，用于被拦截时的明确原因提示，
-     * 例如：气源压力 0.30 MPa（标准 0.40~0.80 MPa），工装完好
+     * 例如：气源压力 0.30 MPa（标准 0.40~0.80 MPa），工装完好，剩余刀次 30（门槛 100，已到门槛）
      */
     public String getResultSummary() {
         StringBuilder sb = new StringBuilder("气源压力 ")
@@ -85,6 +97,12 @@ public class LineInspection {
                     .append("~").append(AIR_PRESSURE_MAX.stripTrailingZeros().toPlainString()).append(" MPa）");
         }
         sb.append("，工装").append(Boolean.TRUE.equals(toolingIntact) ? "完好" : "不完好");
+        // 剩余刀次已到门槛时给出剩余/门槛明细，便于换刀员核对换刀
+        if (Boolean.TRUE.equals(toolingBelowThreshold)) {
+            sb.append("，剩余刀次 ").append(toolingRemainingCuts == null ? "未录入" : toolingRemainingCuts)
+                    .append("（门槛 ").append(toolingCutThreshold == null ? "未配置" : toolingCutThreshold)
+                    .append("，已到门槛）");
+        }
         return sb.toString();
     }
 }

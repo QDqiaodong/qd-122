@@ -5,6 +5,7 @@ import com.spring.transfer.common.LineHaltStatus;
 import com.spring.transfer.dto.LineHaltGuardResponse;
 import com.spring.transfer.dto.LineHaltRequest;
 import com.spring.transfer.dto.LineResumeRequest;
+import com.spring.transfer.dto.ToolingCutsUpdateRequest;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.repository.ProductionLineRepository;
 import com.spring.transfer.repository.TransferApplicationItemRepository;
@@ -102,6 +103,28 @@ public class ProductionLineService {
         line.setResumeOperator(request.getOperator().trim());
         line.setResumeTime(LocalDateTime.now());
         line.setResumeConclusion(request.getConclusion().trim());
+        return productionLineRepository.save(line);
+    }
+
+    /**
+     * 维护工装剩余刀次与门槛：换刀员登记当前剩余刀次/换刀复位。
+     * 悲观锁串行化并发登记；剩余刀次低于门槛即到门槛（开班点检不通过、不能作为调拨模拟接收方），
+     * 换刀复位使剩余刀次回到门槛及以上即解除门槛。
+     */
+    @Transactional
+    public ProductionLine updateToolingCuts(Long lineId, ToolingCutsUpdateRequest request) {
+        ProductionLine line = productionLineRepository.findByIdForUpdate(lineId)
+                .orElseThrow(() -> new RuntimeException("产线不存在"));
+        if (request.getToolingRemainingCuts() == null) {
+            throw new RuntimeException("工装剩余刀次不能为空");
+        }
+        if (request.getToolingCutThreshold() == null || request.getToolingCutThreshold() < 1) {
+            throw new RuntimeException("刀次门槛必须大于0");
+        }
+        line.setToolingRemainingCuts(request.getToolingRemainingCuts());
+        line.setToolingCutThreshold(request.getToolingCutThreshold());
+        line.setToolingOperator(request.getOperator().trim());
+        line.setToolingUpdateTime(LocalDateTime.now());
         return productionLineRepository.save(line);
     }
 }

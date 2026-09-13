@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.spring.transfer.common.ApplicationStatus;
 import com.spring.transfer.common.SimulationStatus;
 import com.spring.transfer.dto.AdoptSimulationRequest;
+import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.TransferApplication;
 import com.spring.transfer.entity.TransferSimulation;
 import com.spring.transfer.entity.TransferSimulationItem;
@@ -46,6 +47,8 @@ class TransferSimulationServiceTest {
     private LineLoadService lineLoadService;
     @Mock
     private TransferApplicationService applicationService;
+    @Mock
+    private LineInspectionService lineInspectionService;
 
     private TransferSimulationService simulationService;
 
@@ -54,7 +57,7 @@ class TransferSimulationServiceTest {
         simulationService = new TransferSimulationService(
                 simulationRepository, itemRepository, applicationRepository,
                 springArchiveRepository, productionLineRepository,
-                lineLoadService, applicationService, new ObjectMapper());
+                lineLoadService, applicationService, lineInspectionService, new ObjectMapper());
         lenient().when(simulationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         lenient().when(itemRepository.countBySimulationId(any())).thenReturn(1);
     }
@@ -64,6 +67,13 @@ class TransferSimulationServiceTest {
         TransferSimulation simulation = simulation(SimulationStatus.DRAFT);
         when(simulationRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(simulation));
         when(itemRepository.findBySimulationIdOrderByIdAsc(1L)).thenReturn(List.of(item(11L)));
+        // 接收产线剩余刀次未到门槛，采用守卫放行
+        ProductionLine toLine = new ProductionLine();
+        toLine.setId(4L);
+        toLine.setLineName("装配四号线");
+        toLine.setToolingRemainingCuts(500);
+        toLine.setToolingCutThreshold(100);
+        when(productionLineRepository.findById(4L)).thenReturn(Optional.of(toLine));
 
         TransferApplication application = new TransferApplication();
         application.setId(100L);
@@ -105,6 +115,28 @@ class TransferSimulationServiceTest {
         RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> simulationService.adopt(1L, request));
         assertTrue(ex.getMessage().contains("已作废"));
+    }
+
+    @Test
+    void adoptRejectsLineBelowToolingThreshold() {
+        TransferSimulation simulation = simulation(SimulationStatus.DRAFT);
+        when(simulationRepository.findByIdForUpdate(1L)).thenReturn(Optional.of(simulation));
+        when(itemRepository.findBySimulationIdOrderByIdAsc(1L)).thenReturn(List.of(item(11L)));
+        // 接收产线保存方案后剩余刀次跌破门槛，采用时拦截
+        ProductionLine toLine = new ProductionLine();
+        toLine.setId(4L);
+        toLine.setLineName("装配四号线");
+        toLine.setToolingRemainingCuts(30);
+        toLine.setToolingCutThreshold(100);
+        when(productionLineRepository.findById(4L)).thenReturn(Optional.of(toLine));
+        when(lineInspectionService.toolingBlockReason(toLine))
+                .thenReturn("产线「装配四号线」工装剩余刀次 30 已低于门槛 100，门槛未解除前不能作为调拨模拟接收方");
+
+        AdoptSimulationRequest request = new AdoptSimulationRequest();
+        request.setApplicant("张三");
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> simulationService.adopt(1L, request));
+        assertTrue(ex.getMessage().contains("剩余刀次"));
     }
 
     @Test

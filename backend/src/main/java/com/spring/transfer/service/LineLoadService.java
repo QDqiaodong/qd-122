@@ -263,6 +263,13 @@ public class LineLoadService {
             throw new RuntimeException(inspectionBlock);
         }
 
+        // 工装刀次校验：剩余刀次低于门槛（门槛未解除）的产线不能作为调拨模拟接收方，
+        // 即使当日点检已通过仍按当前刀次拦截，换刀复位使剩余刀次回到门槛及以上后才放行
+        String toolingBlock = lineInspectionService.toolingBlockReason(toLine);
+        if (toolingBlock != null) {
+            throw new RuntimeException(toolingBlock);
+        }
+
         List<Long> distinctIds = springIds.stream().distinct().toList();
         List<SpringArchive> allSprings = springArchiveRepository.findAll();
         Map<Long, SpringArchive> springMap = allSprings.stream()
@@ -451,6 +458,12 @@ public class LineLoadService {
         stats.setResumeOperator(line.getResumeOperator());
         stats.setResumeTime(line.getResumeTime());
         stats.setResumeConclusion(line.getResumeConclusion());
+        // 工装剩余刀次随负载概览下发：看板卡片/明细展示剩余刀次与是否已到门槛
+        stats.setToolingRemainingCuts(line.getToolingRemainingCuts());
+        stats.setToolingCutThreshold(line.getToolingCutThreshold());
+        stats.setToolingBelowThreshold(line.isToolingBelowThreshold());
+        stats.setToolingOperator(line.getToolingOperator());
+        stats.setToolingUpdateTime(line.getToolingUpdateTime());
         stats.setSpringCount(count);
         stats.setOutOfRangeCount(outOfRange);
         stats.setTrendDays(TREND_DAYS);

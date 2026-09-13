@@ -52,6 +52,7 @@ public class TransferSimulationService {
     private final ProductionLineRepository productionLineRepository;
     private final LineLoadService lineLoadService;
     private final TransferApplicationService applicationService;
+    private final LineInspectionService lineInspectionService;
     private final ObjectMapper objectMapper;
 
     /** 实时预估：不保存方案，直接返回各受影响产线的负载预估 */
@@ -138,6 +139,14 @@ public class TransferSimulationService {
         List<TransferSimulationItem> items = itemRepository.findBySimulationIdOrderByIdAsc(id);
         if (items.isEmpty()) {
             throw new RuntimeException("方案明细为空，无法生成划转申请");
+        }
+
+        // 采用时按当前工装剩余刀次再守卫一次：方案保存后该接收产线刀次跌破门槛的，不能采用
+        ProductionLine toLine = productionLineRepository.findById(simulation.getToLineId())
+                .orElseThrow(() -> new RuntimeException("拟接收产线不存在"));
+        String toolingBlock = lineInspectionService.toolingBlockReason(toLine);
+        if (toolingBlock != null) {
+            throw new RuntimeException(toolingBlock);
         }
 
         SubmitApplicationRequest submit = new SubmitApplicationRequest();

@@ -99,4 +99,19 @@ public class LineLoadStats {
 
     /** 最近一次超载处置完成时间 */
     private java.time.LocalDateTime lastOverloadDisposeTime;
+
+    /** 当前工装剩余刀次，尚未录入为 null */
+    private Integer toolingRemainingCuts;
+
+    /** 工装剩余刀次门槛，尚未配置为 null；剩余刀次低于门槛即到门槛 */
+    private Integer toolingCutThreshold;
+
+    /** 工装剩余刀次是否已到门槛（剩余刀次低于门槛）：到门槛时开班点检不通过、不能作为调拨模拟接收方 */
+    private boolean toolingBelowThreshold;
+
+    /** 最近一次工装刀次登记/换刀复位操作人 */
+    private String toolingOperator;
+
+    /** 最近一次工装刀次登记/换刀复位时间 */
+    private java.time.LocalDateTime toolingUpdateTime;
 }

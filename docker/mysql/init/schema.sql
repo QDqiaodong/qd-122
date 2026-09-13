@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS production_line (
     daily_capacity_threshold INT COMMENT '日承载阈值（单日可承载弹簧数量上限）',
     elastic_min DECIMAL(10,4) COMMENT '适用弹力系数下限 N/mm',
     elastic_max DECIMAL(10,4) COMMENT '适用弹力系数上限 N/mm',
+    tooling_remaining_cuts INT COMMENT '当前工装剩余刀次（null 表示尚未录入，由 ToolingCutsInitializer 补默认值）',
+    tooling_cut_threshold INT COMMENT '工装剩余刀次门槛：剩余刀次低于该值即到门槛（开班点检不通过、不能作为调拨模拟接收方）',
+    tooling_operator VARCHAR(32) COMMENT '最近一次工装刀次登记/换刀复位操作人（换刀员）',
+    tooling_update_time DATETIME COMMENT '最近一次工装刀次登记/换刀复位时间',
     halt_status VARCHAR(16) NOT NULL DEFAULT 'NORMAL' COMMENT '停台状态：NORMAL-正常 HALTED-临时停台中',
     halt_reason VARCHAR(255) COMMENT '停台原因（设备检修/缺料/工艺调整等）',
     halt_expected_resume_time DATETIME COMMENT '预计复台时间',
@@ -271,11 +275,12 @@ CREATE TABLE IF NOT EXISTS night_load_review (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='夜班承载复核单表';
 
 INSERT IGNORE INTO production_line
-    (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max) VALUES
-('LINE-001', '装配一号线', '精密小型件装配线', 2, 0.2000, 1.0000),
-('LINE-002', '装配二号线', '中型件标准装配线', 4, 2.0000, 3.0000),
-('LINE-003', '装配三号线', '大型件重载装配线', 3, 4.0000, 6.0000),
-('LINE-004', '装配四号线', '自动化智能装配线', 5, 0.5000, 3.5000);
+    (line_code, line_name, description, daily_capacity_threshold, elastic_min, elastic_max,
+     tooling_remaining_cuts, tooling_cut_threshold, tooling_operator, tooling_update_time) VALUES
+('LINE-001', '装配一号线', '精密小型件装配线', 2, 0.2000, 1.0000, 480, 100, '李换刀', NOW()),
+('LINE-002', '装配二号线', '中型件标准装配线', 4, 2.0000, 3.0000, 260, 100, '李换刀', NOW()),
+('LINE-003', '装配三号线', '大型件重载装配线', 3, 4.0000, 6.0000, 60, 100, '李换刀', NOW()),
+('LINE-004', '装配四号线', '自动化智能装配线', 5, 0.5000, 3.5000, 500, 100, '李换刀', NOW());
 
 INSERT IGNORE INTO spring_archive (spring_code, model, elastic_coefficient, outer_diameter, current_line_id, initial_line_id) VALUES
 ('SP-2024-0001', 'C-Spring-05', 0.5000, 12.5000, 1, 1),

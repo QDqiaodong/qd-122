@@ -41,6 +41,22 @@ public class ProductionLine {
     @Column(name = "elastic_max", precision = 10, scale = 4)
     private BigDecimal elasticMax;
 
+    /** 当前工装剩余刀次，null 表示尚未录入 */
+    @Column(name = "tooling_remaining_cuts")
+    private Integer toolingRemainingCuts;
+
+    /** 工装剩余刀次门槛，null 表示尚未配置；剩余刀次低于该值即到门槛 */
+    @Column(name = "tooling_cut_threshold")
+    private Integer toolingCutThreshold;
+
+    /** 最近一次工装刀次登记/换刀复位的操作人（换刀员） */
+    @Column(name = "tooling_operator", length = 32)
+    private String toolingOperator;
+
+    /** 最近一次工装刀次登记/换刀复位时间 */
+    @Column(name = "tooling_update_time")
+    private LocalDateTime toolingUpdateTime;
+
     /** 停台状态：NORMAL-正常 HALTED-停台中；存量行由列默认值 'NORMAL' 兜底 */
     @Enumerated(EnumType.STRING)
     @Column(name = "halt_status", nullable = false, length = 16)
@@ -86,6 +102,26 @@ public class ProductionLine {
     /** 是否处于停台中（历史数据可能为 null，按正常处理） */
     public boolean isHalted() {
         return haltStatus == LineHaltStatus.HALTED;
+    }
+
+    /**
+     * 工装剩余刀次是否已到门槛：当前剩余刀次低于门槛即视为到门槛。
+     * 剩余刀次或门槛尚未录入（null）时不参与判定，按未到门槛处理（由初始化器补默认值）。
+     */
+    public boolean isToolingBelowThreshold() {
+        return toolingRemainingCuts != null && toolingCutThreshold != null
+                && toolingRemainingCuts < toolingCutThreshold;
+    }
+
+    /**
+     * 工装刀次状态摘要，用于开班点检不通过与调拨模拟拦截的明确原因提示，
+     * 例如：剩余刀次 30 已低于门槛 100
+     */
+    public String getToolingCutsSummary() {
+        String remaining = toolingRemainingCuts == null ? "未录入" : String.valueOf(toolingRemainingCuts);
+        String threshold = toolingCutThreshold == null ? "未配置" : String.valueOf(toolingCutThreshold);
+        return "工装剩余刀次 " + remaining + " 已低于门槛 " + threshold
+                + "（需换刀复位后才能开班点检通过、作为划转接收方）";
     }
 
     /**
