@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { LineLoadStats } from '@/types'
 import { lineLoadApi } from '@/api'
-import { Settings2, X } from 'lucide-vue-next'
+import { Settings2, X, Zap } from 'lucide-vue-next'
 
 const props = defineProps<{
   visible: boolean
@@ -40,6 +40,15 @@ watch(() => props.visible, (v) => {
 
 async function handleSave() {
   if (!props.line) return
+  // 最近一次电表读数异常的产线不能修改日承载门槛（后端同样硬拦截并返回拦截原因）
+  if (props.line.lastMeterReadingAbnormal) {
+    ElMessage.error({
+      message: `产线「${props.line.lineName}」最近一次电表抄录读数异常，复核确认前不能修改日承载门槛`,
+      duration: 6000,
+      showClose: true,
+    })
+    return
+  }
   if (form.dailyCapacityThreshold == null || form.dailyCapacityThreshold < 1) {
     ElMessage.warning('请输入有效的日承载阈值（≥1）')
     return
@@ -81,6 +90,18 @@ async function handleSave() {
       <div class="flex items-center gap-2 p-3 bg-industrial-100 rounded-industrial">
         <span class="font-mono text-xs text-industrial-500">{{ line.lineCode }}</span>
         <span class="font-semibold text-industrial-800">{{ line.lineName }}</span>
+      </div>
+
+      <!-- 最近电表读数异常：日承载门槛锁定，保存将被后端拦截 -->
+      <div
+        v-if="line.lastMeterReadingAbnormal"
+        class="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-industrial text-xs text-red-700"
+      >
+        <Zap class="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <span>
+          该产线最近一次电表抄录读数异常{{ line.lastMeterAbnormalReason ? `（${line.lastMeterAbnormalReason}）` : '' }}，
+          复核确认前不能修改日承载门槛，保存将被拦截。
+        </span>
       </div>
 
       <div>

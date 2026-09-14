@@ -41,6 +41,7 @@ import {
   PlayCircle,
   Flame,
   Wind,
+  Zap,
 } from 'lucide-vue-next'
 
 const lineStore = useLineStore()
@@ -239,6 +240,12 @@ function formatTime(time?: string | null) {
   return time.replace('T', ' ').substring(0, 19)
 }
 
+/** 电表读数格式化：千分位 + 两位小数，与电表抄录页口径一致 */
+function formatMeterValue(value?: number | null) {
+  if (value == null) return '-'
+  return Number(value).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function trendDirection(record: TransferRecord, lineId: number) {
   if (record.toLineId === lineId) return 'in'
   if (record.fromLineId === lineId) return 'out'
@@ -253,11 +260,23 @@ function alertStatusText(status?: AlertHandleStatus | null) {
 }
 
 /**
- * 超载且告警未完成处置（存在未关闭事件）时禁止修改日承载阈值，
- * 与后端 updateThreshold 的硬拦截保持一致：必须先填齐处置人/复核工号完成处置。
+ * 日承载门槛锁定原因，与后端 updateThreshold 的两道硬拦截保持一致：
+ * 1. 超载且告警未完成处置（存在未关闭事件）——必须先填齐处置人/复核工号完成处置；
+ * 2. 最近一次电表抄录读数异常——必须先复核确认电表读数。
+ * 返回 null 表示可维护。
  */
+function thresholdBlockReason(line: LineLoadStats): string | null {
+  if (line.status === 'OVERLOAD' && !!line.openAlertEventId) {
+    return '超载告警尚未完成处置（须填写处置人与复核工号），完成前不能修改日承载阈值'
+  }
+  if (line.lastMeterReadingAbnormal) {
+    return '最近一次电表抄录读数异常，复核确认前不能修改日承载门槛'
+  }
+  return null
+}
+
 function thresholdBlocked(line: LineLoadStats): boolean {
-  return line.status === 'OVERLOAD' && !!line.openAlertEventId
+  return thresholdBlockReason(line) != null
 }
 
 function handleActionText(action: string) {
@@ -538,9 +557,7 @@ onMounted(fetchBoard)
                   :class="thresholdBlocked(line)
                     ? 'text-industrial-300'
                     : 'text-industrial-400 hover:text-primary-700 hover:bg-primary-50'"
-                  :title="thresholdBlocked(line)
-                    ? '超载告警尚未完成处置（须填写处置人与复核工号），完成前不能修改日承载阈值'
-                    : '维护阈值'"
+                  :title="thresholdBlockReason(line) ?? '维护阈值'"
                   :disabled="thresholdBlocked(line)"
                   @click.stop="!thresholdBlocked(line) && openThreshold(line)"
                 >
@@ -638,6 +655,35 @@ onMounted(fetchBoard)
               </span>
             </div>
 
+            <!-- 最近一次电表抄录：读数与是否异常（异常时锁定日承载门槛） -->
+            <div class="mt-2 flex items-center gap-1.5 text-xs">
+              <Zap class="w-3.5 h-3.5 text-industrial-400 flex-shrink-0" />
+              <template v-if="line.lastMeterReadTime">
+                <span class="text-industrial-500">
+                  最近读数
+                  <span
+                    class="font-mono font-medium"
+                    :class="line.lastMeterReadingAbnormal ? 'text-red-600' : 'text-industrial-700'"
+                  >
+                    {{ formatMeterValue(line.lastMeterReadingValue) }}
+                  </span>
+                  kWh · {{ line.lastMeterShift === 'DAY' ? '白班' : '夜班' }}
+                </span>
+                <span
+                  class="ml-auto px-1.5 py-0.5 rounded font-medium"
+                  :class="line.lastMeterReadingAbnormal
+                    ? 'bg-red-100 text-red-700 cursor-help'
+                    : 'bg-green-100 text-green-700'"
+                  :title="line.lastMeterReadingAbnormal
+                    ? (line.lastMeterAbnormalReason || '读数异常') + '；复核确认前不能修改日承载门槛'
+                    : `抄表人 ${line.lastMeterReader || '-'} · ${formatTime(line.lastMeterReadTime)}`"
+                >
+                  {{ line.lastMeterReadingAbnormal ? '读数异常' : '读数正常' }}
+                </span>
+              </template>
+              <span v-else class="text-industrial-400">暂无电表抄录</span>
+            </div>
+
             <!-- 最近一次超载处置：处置人 + 复核工号（完成处置时必填） -->
             <div
               v-if="line.lastOverloadDisposePerson || line.lastOverloadReviewEmployeeNo"
@@ -659,11 +705,19 @@ onMounted(fetchBoard)
             </div>
             <!-- 超载未完成处置：阈值锁定提示 -->
             <div
-              v-if="thresholdBlocked(line)"
+              v-if="line.status === 'OVERLOAD' && !!line.openAlertEventId"
               class="mt-2 px-2 py-1 rounded-industrial bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-1.5"
             >
               <OctagonAlert class="w-3.5 h-3.5 flex-shrink-0" />
               超载告警处置未完成，日承载阈值已锁定；完成处置须填写处置人与复核工号
+            </div>
+            <!-- 最近电表读数异常：日承载门槛锁定提示 -->
+            <div
+              v-if="line.lastMeterReadingAbnormal"
+              class="mt-2 px-2 py-1 rounded-industrial bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-1.5"
+            >
+              <Zap class="w-3.5 h-3.5 flex-shrink-0" />
+              最近一次电表读数异常，日承载门槛已锁定；请先复核确认电表读数
             </div>
 
             <!-- 触发原因预览 -->
@@ -746,9 +800,7 @@ onMounted(fetchBoard)
             <button
               class="btn-industrial-outline disabled:opacity-40 disabled:cursor-not-allowed"
               :disabled="!drawerStats || thresholdBlocked(drawerStats)"
-              :title="drawerStats && thresholdBlocked(drawerStats)
-                ? '超载告警尚未完成处置（须填写处置人与复核工号），完成前不能修改日承载阈值'
-                : '维护阈值'"
+              :title="drawerStats ? (thresholdBlockReason(drawerStats) ?? '维护阈值') : '维护阈值'"
               @click="drawerStats && !thresholdBlocked(drawerStats) && openThreshold(selectedLine)"
             >
               <Settings2 class="w-4 h-4 inline mr-1" />
@@ -882,6 +934,80 @@ onMounted(fetchBoard)
               </p>
             </div>
 
+            <!-- 最近一次电表抄录：读数、是否异常、抄表人与抄表时间 -->
+            <div
+              class="card-industrial p-4 border-l-4"
+              :class="
+                !drawerStats?.lastMeterReadTime
+                  ? 'border-l-industrial-300'
+                  : drawerStats?.lastMeterReadingAbnormal
+                    ? 'border-l-red-500'
+                    : 'border-l-green-500'
+              "
+            >
+              <div class="flex items-center gap-2">
+                <Zap class="w-4 h-4 text-primary-600" />
+                <h3 class="font-semibold text-industrial-800">电表抄录</h3>
+                <span
+                  v-if="drawerStats?.lastMeterReadTime"
+                  class="ml-auto px-2 py-0.5 rounded-full text-xs font-medium"
+                  :class="drawerStats.lastMeterReadingAbnormal
+                    ? 'bg-red-100 text-red-700'
+                    : 'bg-green-100 text-green-700'"
+                >
+                  {{ drawerStats.lastMeterReadingAbnormal ? '读数异常' : '读数正常' }}
+                </span>
+                <span
+                  v-else
+                  class="ml-auto px-2 py-0.5 rounded-full text-xs font-medium bg-industrial-100 text-industrial-500"
+                >
+                  暂无抄录
+                </span>
+              </div>
+              <div v-if="drawerStats?.lastMeterReadTime" class="mt-2 grid grid-cols-1 md:grid-cols-4 gap-3 text-sm">
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">最近一次读数</div>
+                  <div
+                    class="mt-0.5 font-mono font-medium"
+                    :class="drawerStats.lastMeterReadingAbnormal ? 'text-red-700' : 'text-industrial-800'"
+                  >
+                    {{ formatMeterValue(drawerStats.lastMeterReadingValue) }} kWh
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">班次</div>
+                  <div class="mt-0.5 font-medium text-industrial-800">
+                    {{ drawerStats.lastMeterShift === 'DAY' ? '白班' : '夜班' }}
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">抄表人</div>
+                  <div class="mt-0.5 font-medium text-industrial-800">
+                    {{ drawerStats.lastMeterReader || '-' }}
+                  </div>
+                </div>
+                <div class="bg-industrial-50 rounded-industrial px-3 py-2">
+                  <div class="text-xs text-industrial-500">抄表时间</div>
+                  <div class="mt-0.5 font-mono font-medium text-industrial-800">
+                    {{ formatTime(drawerStats.lastMeterReadTime) }}
+                  </div>
+                </div>
+              </div>
+              <p
+                v-if="drawerStats?.lastMeterReadingAbnormal"
+                class="mt-2 text-xs text-red-600 flex items-start gap-1"
+              >
+                <AlertTriangle class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  {{ drawerStats.lastMeterAbnormalReason || '读数跳变超过约定幅度' }}；
+                  复核确认前该产线不能修改日承载门槛
+                </span>
+              </p>
+              <p v-else-if="!drawerStats?.lastMeterReadTime" class="mt-2 text-sm text-industrial-400">
+                该产线暂无电表抄录记录
+              </p>
+            </div>
+
             <!-- 最近一次超载处置：处置人与复核工号（完成时必填） -->
             <div
               v-if="drawerStats?.lastOverloadDisposePerson || drawerStats?.lastOverloadReviewEmployeeNo"
@@ -912,13 +1038,26 @@ onMounted(fetchBoard)
 
             <!-- 超载未完成处置：阈值锁定 -->
             <div
-              v-if="drawerStats && thresholdBlocked(drawerStats)"
+              v-if="drawerStats && drawerStats.status === 'OVERLOAD' && !!drawerStats.openAlertEventId"
               class="card-industrial p-4 border-2 border-red-300 bg-red-50/50 text-sm text-red-700 flex items-start gap-2"
             >
               <OctagonAlert class="w-4 h-4 flex-shrink-0 mt-0.5" />
               <span>
                 该产线当前超载且告警尚未完成处置，日承载阈值已锁定不能修改；
                 请先在下方告警事件中点「标记处理完成」，填写处置人与复核工号完成闭环。
+              </span>
+            </div>
+
+            <!-- 最近电表读数异常：日承载门槛锁定 -->
+            <div
+              v-if="drawerStats?.lastMeterReadingAbnormal"
+              class="card-industrial p-4 border-2 border-red-300 bg-red-50/50 text-sm text-red-700 flex items-start gap-2"
+            >
+              <Zap class="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>
+                该产线最近一次电表抄录读数异常，日承载门槛已锁定不能修改；
+                请先复核确认电表读数（抄表人 {{ drawerStats.lastMeterReader || '-' }}，
+                抄表时间 {{ formatTime(drawerStats.lastMeterReadTime) }}）。
               </span>
             </div>
 

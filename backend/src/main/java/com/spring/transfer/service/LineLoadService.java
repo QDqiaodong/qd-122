@@ -12,6 +12,7 @@ import com.spring.transfer.common.ApplicationStatus;
 import com.spring.transfer.common.ItemStatus;
 import com.spring.transfer.entity.LineInspection;
 import com.spring.transfer.entity.LoadAlertEvent;
+import com.spring.transfer.entity.MeterReading;
 import com.spring.transfer.entity.ProductionLine;
 import com.spring.transfer.entity.SpringArchive;
 import com.spring.transfer.entity.TransferRecord;
@@ -65,19 +66,23 @@ public class LineLoadService {
     private final LoadAlertService loadAlertService;
     /** 开班点检：看板挂载最近点检结果，调拨模拟拦截未点检接收产线 */
     private final LineInspectionService lineInspectionService;
+    /** 电表抄录：看板挂载最近一次读数与是否异常，读数异常的产线锁定日承载门槛 */
+    private final MeterReadingService meterReadingService;
 
     public LineLoadService(ProductionLineRepository productionLineRepository,
                            SpringArchiveRepository springArchiveRepository,
                            TransferRecordRepository transferRecordRepository,
                            TransferApplicationRepository applicationRepository,
                            @Lazy LoadAlertService loadAlertService,
-                           LineInspectionService lineInspectionService) {
+                           LineInspectionService lineInspectionService,
+                           MeterReadingService meterReadingService) {
         this.productionLineRepository = productionLineRepository;
         this.springArchiveRepository = springArchiveRepository;
         this.transferRecordRepository = transferRecordRepository;
         this.applicationRepository = applicationRepository;
         this.loadAlertService = loadAlertService;
         this.lineInspectionService = lineInspectionService;
+        this.meterReadingService = meterReadingService;
     }
 
     public LineLoadBoardResponse getBoard() {
@@ -194,6 +199,7 @@ public class LineLoadService {
                 trend.inCount.getOrDefault(lineId, 0),
                 trend.outCount.getOrDefault(lineId, 0));
         attachInspection(stats);
+        attachMeterReading(stats);
 
         // 明细同样先同步事件，保证打开抽屉看到的是最新处置闭环状态
         loadAlertService.syncEvents(List.of(stats));
@@ -237,6 +243,7 @@ public class LineLoadService {
                 trend.inCount.getOrDefault(lineId, 0),
                 trend.outCount.getOrDefault(lineId, 0));
         attachInspection(stats);
+        attachMeterReading(stats);
         return Optional.of(stats);
     }
 
@@ -370,8 +377,10 @@ public class LineLoadService {
 
     /**
      * 维护产线日承载阈值与弹力系数适用区间。
-     * 未完成处置的超载产线（当前超载且存在未关闭告警事件）禁止修改阈值：
-     * 必须先在告警处置中填齐处置人与复核工号完成闭环，才能通过调阈值改变负载口径。
+     * 两道硬门禁：
+     * 1. 最近一次电表抄录读数异常的产线，电表复核确认前不能修改日承载门槛；
+     * 2. 未完成处置的超载产线（当前超载且存在未关闭告警事件）禁止修改阈值：
+     *    必须先在告警处置中填齐处置人与复核工号完成闭环，才能通过调阈值改变负载口径。
      */
     @Transactional
     public ProductionLine updateThreshold(Long lineId, LineThresholdUpdateRequest request) {
@@ -384,6 +393,15 @@ public class LineLoadService {
                 && request.getElasticMin().compareTo(request.getElasticMax()) > 0) {
             throw new RuntimeException("弹力系数下限不能大于上限");
         }
+        // 电表读数异常门禁：最近一次抄录标异常的产线，复核确认前不允许改日承载门槛，
+        // 拦截原因中带出异常明细（上一条/本条读数、跳变量），便于现场核对
+        meterReadingService.latestOfLine(lineId)
+                .filter(r -> Boolean.TRUE.equals(r.getAbnormal()))
+                .ifPresent(r -> {
+                    throw new RuntimeException("产线「" + line.getLineName() + "」最近一次电表抄录读数异常（"
+                            + (r.getAbnormalReason() != null ? r.getAbnormalReason() : "读数跳变超过约定幅度")
+                            + "），读数异常的产线不能修改日承载门槛，请先复核确认电表读数");
+                });
         // 超载未闭环门禁：用保存前的归属与阈值实时计算，处置完成前不允许改口径
         List<SpringArchive> currentSprings = springArchiveRepository.findByCurrentLineId(lineId);
         LineLoadStats currentStats = buildStats(line, currentSprings.size(),
@@ -415,6 +433,7 @@ public class LineLoadService {
         Map<Long, Long> countMap = toCountMap(springsByLine);
         TrendAggregation trend = aggregateTrend(transferRecordRepository.findByOperateTimeAfter(after));
         Map<Long, LineInspection> latestInspections = lineInspectionService.latestMap();
+        Map<Long, MeterReading> latestReadings = meterReadingService.latestMap();
 
         List<LineLoadStats> statsList = productionLineRepository.findAll().stream()
                 .map(line -> {
@@ -424,6 +443,7 @@ public class LineLoadService {
                             trend.inCount.getOrDefault(line.getId(), 0),
                             trend.outCount.getOrDefault(line.getId(), 0));
                     attachInspection(stats, latestInspections.get(line.getId()));
+                    attachMeterReading(stats, latestReadings.get(line.getId()));
                     return stats;
                 })
                 .collect(Collectors.toList());
@@ -537,6 +557,20 @@ public class LineLoadService {
         stats.setLastInspectionPassed(latest == null ? null : latest.getPassed());
         stats.setLastInspector(latest == null ? null : latest.getInspector());
         stats.setInspectedToday(latest != null && latest.isToday());
+    }
+
+    /** 挂载单条产线的最近一次电表抄录（读数、是否异常、抄表人与抄表时间） */
+    private void attachMeterReading(LineLoadStats stats) {
+        attachMeterReading(stats, meterReadingService.latestOfLine(stats.getLineId()).orElse(null));
+    }
+
+    private void attachMeterReading(LineLoadStats stats, MeterReading latest) {
+        stats.setLastMeterReadingValue(latest == null ? null : latest.getReadingValue());
+        stats.setLastMeterReadingAbnormal(latest == null ? null : Boolean.TRUE.equals(latest.getAbnormal()));
+        stats.setLastMeterShift(latest == null || latest.getShift() == null ? null : latest.getShift().name());
+        stats.setLastMeterReader(latest == null ? null : latest.getReader());
+        stats.setLastMeterReadTime(latest == null ? null : latest.getReadTime());
+        stats.setLastMeterAbnormalReason(latest == null ? null : latest.getAbnormalReason());
     }
 
     private int countOutOfRange(ProductionLine line, List<SpringArchive> springs) {        BigDecimal min = line.getElasticMin();

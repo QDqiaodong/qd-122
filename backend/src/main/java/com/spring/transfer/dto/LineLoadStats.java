@@ -79,6 +79,24 @@ public class LineLoadStats {
     /** 最近一次复台结论 */
     private String resumeConclusion;
 
+    /** 最近一次电表读数（kWh），从未抄录为 null */
+    private BigDecimal lastMeterReadingValue;
+
+    /** 最近一次电表读数是否异常（跳变超约定幅度），从未抄录为 null；异常时不能修改日承载门槛 */
+    private Boolean lastMeterReadingAbnormal;
+
+    /** 最近一次抄表班次：DAY-白班 NIGHT-夜班，从未抄录为 null */
+    private String lastMeterShift;
+
+    /** 最近一次抄表人，从未抄录为 null */
+    private String lastMeterReader;
+
+    /** 最近一次抄表时间，从未抄录为 null */
+    private java.time.LocalDateTime lastMeterReadTime;
+
+    /** 最近一次读数异常原因（上一条/本条读数、跳变量），正常或未抄录为 null */
+    private String lastMeterAbnormalReason;
+
     /** 最近一次开班点检时间，从未点检过为 null */
     private java.time.LocalDateTime lastInspectionTime;
 

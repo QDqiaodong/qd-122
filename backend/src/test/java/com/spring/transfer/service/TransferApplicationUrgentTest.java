@@ -77,6 +77,8 @@ class TransferApplicationUrgentTest {
     private ElasticSampleService elasticSampleService;
     @Mock
     private LineInspectionService lineInspectionService;
+    @Mock
+    private MeterReadingService meterReadingService;
 
     private TransferApplicationService applicationService;
 
@@ -320,7 +322,7 @@ class TransferApplicationUrgentTest {
         // 已处理行不再占用加急名额，计数对齐无异常原因
         LineLoadService boardService = new LineLoadService(
                 productionLineRepository, springArchiveRepository, transferRecordRepository,
-                applicationRepository, loadAlertService, lineInspectionService);
+                applicationRepository, loadAlertService, lineInspectionService, meterReadingService);
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
@@ -345,7 +347,7 @@ class TransferApplicationUrgentTest {
         // 剩余待批行口径下该单不再占用加急名额（计 0 行），同时必须给出明确对不齐原因
         LineLoadService boardService = new LineLoadService(
                 productionLineRepository, springArchiveRepository, transferRecordRepository,
-                applicationRepository, loadAlertService, lineInspectionService);
+                applicationRepository, loadAlertService, lineInspectionService, meterReadingService);
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));
@@ -372,7 +374,7 @@ class TransferApplicationUrgentTest {
         // 看板仍按剩余待批行计入（与审批台逐行看到的量一致），并明确指出状态需校正
         LineLoadService boardService = new LineLoadService(
                 productionLineRepository, springArchiveRepository, transferRecordRepository,
-                applicationRepository, loadAlertService, lineInspectionService);
+                applicationRepository, loadAlertService, lineInspectionService, meterReadingService);
         when(springArchiveRepository.findAll()).thenReturn(List.of());
         when(transferRecordRepository.findByOperateTimeAfter(any())).thenReturn(List.of());
         when(loadAlertService.attachOpenEvents(anyList())).thenReturn(Map.of("pending", 0, "open", 0));

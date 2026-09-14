@@ -84,6 +84,18 @@ export interface LineLoadStats {
   resumeOperator?: string | null
   resumeTime?: string | null
   resumeConclusion?: string | null
+  /** 最近一次电表读数 kWh，从未抄录为 null */
+  lastMeterReadingValue?: number | null
+  /** 最近一次电表读数是否异常（跳变超约定幅度），从未抄录为 null；异常时不能修改日承载门槛 */
+  lastMeterReadingAbnormal?: boolean | null
+  /** 最近一次抄表班次：DAY-白班 NIGHT-夜班 */
+  lastMeterShift?: MeterShift | null
+  /** 最近一次抄表人 */
+  lastMeterReader?: string | null
+  /** 最近一次抄表时间 */
+  lastMeterReadTime?: string | null
+  /** 最近一次读数异常原因（上一条/本条读数、跳变量） */
+  lastMeterAbnormalReason?: string | null
   /** 最近一次开班点检时间，从未点检过为 null */
   lastInspectionTime?: string | null
   /** 最近一次开班点检是否通过，从未点检过为 null */

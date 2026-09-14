@@ -44,6 +44,8 @@ class LineLoadServiceSimulationTest {
     private LoadAlertService loadAlertService;
     @Mock
     private LineInspectionService lineInspectionService;
+    @Mock
+    private MeterReadingService meterReadingService;
 
     private LineLoadService lineLoadService;
 
@@ -53,7 +55,8 @@ class LineLoadServiceSimulationTest {
     @BeforeEach
     void setUp() {
         lineLoadService = new LineLoadService(productionLineRepository, springArchiveRepository,
-                transferRecordRepository, applicationRepository, loadAlertService, lineInspectionService);
+                transferRecordRepository, applicationRepository, loadAlertService, lineInspectionService,
+                meterReadingService);
 
         lines = List.of(
                 line(1L, "LINE-001", "装配一号线", 2, "0.2", "1.0"),
