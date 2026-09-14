@@ -176,6 +176,7 @@ class LoadAlertServiceTest {
         LoadAlertEvent event = event(10L, 1L, AlertStatus.PROCESSING);
         when(eventRepository.findById(10L)).thenReturn(Optional.of(event));
 
+        // 处理说明为空：即便产线仍超载，也必须先拦处理说明，而不是处置人/复核工号
         AlertDispositionRequest emptyRemark = new AlertDispositionRequest();
         emptyRemark.setAction("RESOLVE");
         emptyRemark.setOperator("调度员A");
@@ -183,16 +184,61 @@ class LoadAlertServiceTest {
                 () -> loadAlertService.resolve(10L, emptyRemark, LoadStatus.OVERLOAD.name()));
         assertTrue(ex.getMessage().contains("处理说明"));
 
+        // 说明已补齐但处置人、复核工号都缺：先拦处置人，文案与看板完成处置表单一致
+        AlertDispositionRequest onlyRemark = new AlertDispositionRequest();
+        onlyRemark.setAction("RESOLVE");
+        onlyRemark.setOperator("调度员A");
+        onlyRemark.setRemark("已协调分流，观察中");
+        RuntimeException missingPerson = assertThrows(RuntimeException.class,
+                () -> loadAlertService.resolve(10L, onlyRemark, LoadStatus.OVERLOAD.name()));
+        assertEquals("产线当前仍超载，完成处置必须填写处置人", missingPerson.getMessage());
+
+        // 再补上处置人但缺复核工号：继续拦复核工号
+        AlertDispositionRequest missingReview = new AlertDispositionRequest();
+        missingReview.setAction("RESOLVE");
+        missingReview.setOperator("调度员A");
+        missingReview.setRemark("已协调分流，观察中");
+        missingReview.setDisposePerson("王现场");
+        RuntimeException missingReviewEx = assertThrows(RuntimeException.class,
+                () -> loadAlertService.resolve(10L, missingReview, LoadStatus.OVERLOAD.name()));
+        assertEquals("产线当前仍超载，完成处置必须填写复核工号", missingReviewEx.getMessage());
+
+        // 三项填齐：仍超载也允许完成处置，处置人/复核工号随事件持久化并写入处置记录
         AlertDispositionRequest request = new AlertDispositionRequest();
         request.setAction("RESOLVE");
         request.setOperator("调度员A");
         request.setRemark("已协调分流，观察中");
+        request.setDisposePerson("王现场");
+        request.setReviewEmployeeNo("GH10086");
         LoadAlertEvent result = loadAlertService.resolve(10L, request, LoadStatus.OVERLOAD.name());
         assertEquals(AlertStatus.RESOLVED, result.getStatus());
         assertEquals("MANUAL", result.getCloseType());
+        assertEquals("王现场", result.getDisposePerson());
+        assertEquals("GH10086", result.getReviewEmployeeNo());
         assertTrue(result.isManualCloseActive());
         assertNull(result.getActiveLineId());
         assertNotNull(result.getCloseTime());
+        verify(handleLogRepository).save(argThat(log ->
+                "RESOLVE".equals(log.getAction())
+                        && log.getEventId().equals(10L)
+                        && log.getDetail().contains("处置人：王现场")
+                        && log.getDetail().contains("复核工号：GH10086")));
+    }
+
+    @Test
+    void resolveWhileWarningDoesNotRequireDisposePerson() {
+        // 仅预警（非超载）时完成处置：有处理说明即可，不要求处置人/复核工号
+        LoadAlertEvent event = event(10L, 1L, AlertStatus.PROCESSING);
+        when(eventRepository.findById(10L)).thenReturn(Optional.of(event));
+
+        AlertDispositionRequest request = new AlertDispositionRequest();
+        request.setAction("RESOLVE");
+        request.setOperator("调度员A");
+        request.setRemark("预警持续观察后关闭");
+        LoadAlertEvent result = loadAlertService.resolve(10L, request, LoadStatus.WARNING.name());
+        assertEquals(AlertStatus.RESOLVED, result.getStatus());
+        assertTrue(result.isManualCloseActive());
+        assertNull(result.getDisposePerson());
     }
 
     @Test

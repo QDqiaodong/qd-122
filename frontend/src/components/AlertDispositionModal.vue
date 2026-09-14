@@ -70,6 +70,7 @@ async function handleSubmit() {
     return
   }
   if (isResolve.value) {
+    // 拦截顺序与后端 resolve 强校验一致：先拦处理说明，再拦处置人、复核工号（仍超载时）
     if (!form.remark.trim()) {
       ElMessage.warning('请填写处理说明')
       return

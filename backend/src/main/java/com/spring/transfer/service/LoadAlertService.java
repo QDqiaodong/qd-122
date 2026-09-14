@@ -296,9 +296,10 @@ public class LoadAlertService {
      * 防止超载未现场闭环、未经复核就被点掉；这两项随事件持久化并在看板展示最近一次。
      */
     public LoadAlertEvent resolve(Long eventId, AlertDispositionRequest request, String currentLineStatus) {
+        // 拦截顺序与看板「标记处理完成」表单逐项校验保持一致：先处理说明，再处置人、复核工号
         String remark = trim(request.getRemark());
         if (remark.isEmpty()) {
-            throw new RuntimeException("请填写处理说明后再关闭告警");
+            throw new RuntimeException("请填写处理说明");
         }
         boolean currentlyOverload = LoadStatus.OVERLOAD.name().equals(currentLineStatus);
         String disposePerson = trim(request.getDisposePerson());
